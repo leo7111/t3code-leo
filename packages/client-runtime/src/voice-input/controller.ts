@@ -1,6 +1,10 @@
 import { replaceTextRange } from "@t3tools/shared/composerTrigger";
 
-import type { PreparedVoiceTranscription, VoiceTranscriber } from "./transcription.ts";
+import {
+  VoiceTranscriptionError,
+  type PreparedVoiceTranscription,
+  type VoiceTranscriber,
+} from "./transcription.ts";
 
 export const VOICE_RECORDING_LIMIT_SECONDS = 5 * 60;
 
@@ -88,18 +92,18 @@ export function resolveTranscriptCommit(
 
   const isEmptySelection = captured.selection.start === captured.selection.end;
   const normalizedLocale = locale.replaceAll("_", "-").toLowerCase();
-  const usesEnglishSpacing = normalizedLocale === "en" || normalizedLocale.startsWith("en-");
+  const usesWordSpacing = /^(en|he)(-|$)/.test(normalizedLocale);
   let insertion = replacement;
-  if (isEmptySelection && usesEnglishSpacing) {
+  if (isEmptySelection && usesWordSpacing) {
     const left = captured.text[captured.selection.start - 1];
     const right = captured.text[captured.selection.start];
     const leftNeedsBoundary =
       left !== undefined &&
-      /[A-Za-z0-9.!?,:;)\]}'"]/.test(left) &&
+      /[A-Za-z0-9\u0590-\u05FF.!?,:;)\]}'"]/.test(left) &&
       (right === undefined || /\s/.test(right));
     const rightNeedsBoundary =
       right !== undefined &&
-      /[A-Za-z0-9([{'"]/.test(right) &&
+      /[A-Za-z0-9\u0590-\u05FF([{'"]/.test(right) &&
       (left === undefined || /\s/.test(left));
     insertion = `${leftNeedsBoundary ? " " : ""}${replacement}${rightNeedsBoundary ? " " : ""}`;
   }
@@ -128,8 +132,11 @@ let activeTranscriptionOperation: Promise<unknown> | null = null;
 
 function acquireSession(): VoiceInputSession | null {
   if (activeSession) return null;
-  const { promise, resolve } = Promise.withResolvers<void>();
-  const token = { abandoned: false, released: promise, release: resolve };
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const token = { abandoned: false, released, release };
   activeSession = token;
   return token;
 }
@@ -161,6 +168,7 @@ function errorCode(error: unknown): string | null {
 }
 
 function preparationErrorMessage(error: unknown): string {
+  if (error instanceof VoiceTranscriptionError) return error.message;
   if (error instanceof Error && error.message === "voice-operation-busy") {
     return "Voice transcription is still finishing. Try again shortly.";
   }
@@ -171,6 +179,7 @@ function preparationErrorMessage(error: unknown): string {
 }
 
 function transcriptionErrorMessage(error: unknown): string {
+  if (error instanceof VoiceTranscriptionError) return error.message;
   if (error instanceof Error && error.message === "voice-operation-busy") {
     return "Voice transcription is still finishing. Try again shortly.";
   }
@@ -271,9 +280,14 @@ export class VoiceInputController {
       this.capturedDraft = capturedDraft;
       this.dependencies.recorder.record({ forDuration: VOICE_RECORDING_LIMIT_SECONDS });
       this.setState({ phase: "recording", error: null, errorAction: null });
-    } catch {
+    } catch (error) {
       if (this.isCurrent(operationToken))
-        this.setError("Could not start voice recording.", "retry");
+        this.setError(
+          error instanceof Error && error.name === "NotAllowedError"
+            ? "Microphone access was denied. Allow microphone access and try again."
+            : "Could not start voice recording. Check that a microphone is connected and available.",
+          "retry",
+        );
     } finally {
       if (sessionToken && this.sessionToken === sessionToken) {
         if (this.isCurrent(operationToken) && this.state.phase === "error") {
@@ -285,9 +299,9 @@ export class VoiceInputController {
     }
   }
 
-  stop(): Promise<void> {
+  stop(onCommitted?: (text: string) => void): Promise<void> {
     if (this.state.phase !== "recording") return Promise.resolve();
-    return this.finishRecording(false, null);
+    return this.finishRecording(false, null, onCommitted);
   }
 
   cancel(): void {
@@ -365,6 +379,7 @@ export class VoiceInputController {
   private async finishRecording(
     alreadyStopped: boolean,
     completedUri: string | null,
+    onCommitted?: (text: string) => void,
   ): Promise<void> {
     if (this.finishing || this.state.phase !== "recording") return;
     this.finishing = true;
@@ -424,6 +439,7 @@ export class VoiceInputController {
 
       this.dependencies.commitDraft(result.text, result.selection);
       this.setState(IDLE_STATE);
+      onCommitted?.(result.text);
     } catch {
       if (this.isCurrent(operationToken)) {
         this.setError("Could not finish voice recording.", "retry");

@@ -94,6 +94,26 @@ const recordProviderUsage = (provider: string, instanceId: string | null = provi
   });
 
 it.layer(NodeServices.layer)("server settings", (it) => {
+  it.effect("persists and broadcasts the Codex voice preference without requiring an API key", () =>
+    Effect.gen(function* () {
+      const service = yield* ServerSettingsModule.ServerSettingsService;
+      const config = yield* ServerConfig.ServerConfig;
+      const fs = yield* FileSystem.FileSystem;
+      assert.isTrue((yield* service.getSettings).codexVoiceInputEnabled);
+      const changes = yield* service.subscribeChanges;
+      yield* service.updateSettings({ codexVoiceInputEnabled: false });
+      assert.isFalse(Option.getOrThrow(yield* Stream.runHead(changes)).codexVoiceInputEnabled);
+      assert.isFalse(
+        (yield* decodeServerSettingsJson(yield* fs.readFileString(config.settingsPath)))
+          .codexVoiceInputEnabled,
+      );
+      yield* service.updateSettings({ codexVoiceInputEnabled: true });
+      assert.isTrue(
+        (yield* decodeServerSettingsJson(yield* fs.readFileString(config.settingsPath)))
+          .codexVoiceInputEnabled,
+      );
+    }).pipe(Effect.provide(layerServerSettings())),
+  );
   it.effect("serializes concurrent model preference edits without cancelling duplicate adds", () =>
     Effect.gen(function* () {
       const service = yield* ServerSettingsModule.ServerSettingsService;

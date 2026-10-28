@@ -38,6 +38,16 @@ const makeEnvironment = (
 ) => DesktopEnvironment.DesktopEnvironment.pipe(Effect.provide(layerEnvironment(overrides, env)));
 
 describe("DesktopEnvironment", () => {
+  it.effect("uses an explicit fork name without changing the default app branding", () =>
+    Effect.gen(function* () {
+      const fork = yield* makeEnvironment({}, { T3CODE_DESKTOP_DISPLAY_NAME: "T3 Code Leo" });
+      const upstream = yield* makeEnvironment();
+      assert.equal(fork.displayName, "T3 Code Leo");
+      assert.equal(fork.branding.baseName, "T3 Code Leo");
+      assert.equal(upstream.displayName, "T3 Code (Beta)");
+      assert.equal(upstream.branding.baseName, "T3 Code");
+    }),
+  );
   it.effect("uses the packaged Windows server sidecar as the backend root", () =>
     Effect.gen(function* () {
       const environment = yield* makeEnvironment({

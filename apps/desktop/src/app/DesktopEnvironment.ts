@@ -101,12 +101,14 @@ function resolveDesktopAppStageLabel(input: {
 export function resolveDesktopAppBranding(input: {
   readonly isDevelopment: boolean;
   readonly appVersion: string;
+  readonly displayName?: string | undefined;
 }): DesktopAppBranding {
   const stageLabel = resolveDesktopAppStageLabel(input);
+  const displayName = input.displayName?.trim();
   return {
-    baseName: APP_BASE_NAME,
+    baseName: displayName || APP_BASE_NAME,
     stageLabel,
-    displayName: `${APP_BASE_NAME} (${stageLabel})`,
+    displayName: displayName || `${APP_BASE_NAME} (${stageLabel})`,
   };
 }
 
@@ -170,6 +172,7 @@ const make = Effect.fn("desktop.environment.make")(function* (
   const branding = resolveDesktopAppBranding({
     isDevelopment,
     appVersion: input.appVersion,
+    displayName: Option.getOrUndefined(config.appDisplayNameOverride),
   });
   const displayName = branding.displayName;
   const stateDir = resolveDesktopStateDir({

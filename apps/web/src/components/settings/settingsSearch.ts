@@ -679,6 +679,20 @@ export const SETTINGS_SEARCH_ITEMS = [
     providerSettingsOnly: true,
   },
   {
+    id: "codex-voice-input-enabled",
+    title: "Enable dictation",
+    to: "/settings/integrations",
+    scope: "environment",
+    searchTerms: ["OpenAI Codex voice microphone enable disable hide transcription dictation"],
+  },
+  {
+    id: "voice-transcription-api-key",
+    title: "OpenAI API key",
+    to: "/settings/integrations",
+    scope: "environment",
+    searchTerms: ["voice dictation microphone speech audio API key OpenAI transcription"],
+  },
+  {
     id: "agent-browser-access",
     title: "Agent browser access",
     to: "/settings/integrations",

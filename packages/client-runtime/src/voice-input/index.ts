@@ -17,3 +17,5 @@ export {
   type VoiceTranscriptionErrorCode,
   type VoiceTranscriptionOptions,
 } from "./transcription.ts";
+
+export { createVoiceTranscriptionState } from "./environment.ts";
