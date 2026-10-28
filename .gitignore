@@ -36,6 +36,8 @@ apps/mobile/.generated/
 apps/mobile/.android-cache/
 /.generated/
 artifacts/app-store/screenshots/
+artifacts/mobile-e2e/
+artifacts/mobile-behavior/
 .github/pr-assets/
 native/**/target/
 node_modules/
@@ -46,3 +48,5 @@ node_modules/
 
 # pnpm content-addressable store; never belongs in the repo.
 .pnpm-store/
+/T3-Code-Leo-*.exe
+/T3-Code-Leo-*.exe.blockmap

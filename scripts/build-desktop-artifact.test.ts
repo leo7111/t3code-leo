@@ -1,9 +1,11 @@
 // @effect-diagnostics nodeBuiltinImport:off - Tests use Node's glob matcher to verify electron-builder exclusions.
 import * as NodeCrypto from "node:crypto";
+import * as NodeFs from "node:fs";
 import * as NodePath from "node:path";
+import * as NodeVm from "node:vm";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { extractFile } from "@electron/asar";
+import { createPackageWithOptions, extractFile } from "@electron/asar";
 import { assert, it } from "@effect/vitest";
 import * as ConfigProvider from "effect/ConfigProvider";
 import * as Deferred from "effect/Deferred";
@@ -45,7 +47,9 @@ import {
   ancestorNodeModulesPaths,
   copyDirectoryPreservingSymlinks,
   LinuxBrowserSecretHostError,
+  MacPackagedAppMissingError,
   stageBrowserSecret,
+  validateMacPackagedPayload,
   validateWindowsPackagedPayload,
   verifyPackagedBundleIsSelfContained,
   WindowsPrimaryNativeProbeError,
@@ -73,7 +77,55 @@ const decodePackageVersion = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
 );
 
-// Keeps pnpm from auto-installing TypeScript, a types-only peer, into the app.
+it("isolates Leo before boot even when launched from another T3 environment", () => {
+  const source = NodeFs.readFileSync(
+    new URL("../apps/desktop/scripts/leo-boot.cjs", import.meta.url),
+    "utf8",
+  );
+  for (const inherited of [
+    {},
+    { T3CODE_HOME: "C:/live/.t3", APPDATA: "C:/live/profile" },
+    {
+      T3CODE_HOME: "C:/live",
+      VITE_DEV_SERVER_URL: "http://localhost:5733",
+      VITE_HTTP_URL: "http://live",
+      VITE_WS_URL: "ws://live",
+      T3CODE_PORT: "13773",
+      T3_SERVICE_LAUNCHER_CONTEXT: "inherited",
+      T3_BOOT_SERVICE_UNIT: "live",
+    },
+  ]) {
+    const env: Record<string, string | undefined> = { ...inherited };
+    let bootCalls = 0;
+    NodeVm.runInNewContext(source, {
+      process: { env },
+      require(name: string) {
+        if (name === "node:path") return NodePath.win32;
+        if (name === "node:os") return { homedir: () => "C:\\Users\\Test" };
+        assert.equal(name, "./boot.cjs");
+        assert.equal(env.T3CODE_HOME, "C:\\Users\\Test\\.t3-transcription-preview");
+        assert.equal(env.APPDATA, "C:\\Users\\Test\\.t3-transcription-preview\\desktop-profile");
+        assert.equal(
+          env.T3CODE_DESKTOP_APP_USER_MODEL_ID,
+          "com.leo7111.t3code.transcription.preview",
+        );
+        assert.equal(env.T3CODE_DESKTOP_DISPLAY_NAME, "T3 Code Leo");
+        assert.equal(env.T3CODE_DISABLE_AUTO_UPDATE, "1");
+        for (const key of [
+          "VITE_DEV_SERVER_URL",
+          "VITE_HTTP_URL",
+          "VITE_WS_URL",
+          "T3CODE_PORT",
+          "T3_SERVICE_LAUNCHER_CONTEXT",
+          "T3_BOOT_SERVICE_UNIT",
+        ])
+          assert.equal(env[key], undefined);
+        bootCalls++;
+      },
+    });
+    assert.equal(bootCalls, 1);
+  }
+});
 
 const makeLinuxCliArchiveFixture = Effect.fn("test.makeLinuxCliArchiveFixture")(function* (input: {
   readonly root: string;
@@ -209,6 +261,26 @@ const makeWindowsPayloadFixture = Effect.fn("test.makeWindowsPayloadFixture")(fu
     generatedAsarPath,
     appExecutableName,
   } as const;
+});
+
+const makeMacPayloadFixture = Effect.fn("test.makeMacPayloadFixture")(function* (input: {
+  readonly serverEntrySource?: string;
+}) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const tempDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-mac-payload-test-" });
+  const sourceDir = path.join(tempDir, "app-source");
+  const serverEntryPath = path.join(sourceDir, "apps/server/dist/bin.mjs");
+  yield* fs.makeDirectory(path.dirname(serverEntryPath), { recursive: true });
+  yield* fs.writeFileString(serverEntryPath, input.serverEntrySource ?? "console.log('server');\n");
+
+  const stageDistDir = path.join(tempDir, "dist");
+  const resourcesDir = path.join(stageDistDir, "mac-arm64/T3 Code.app/Contents/Resources");
+  yield* fs.makeDirectory(resourcesDir, { recursive: true });
+  yield* Effect.promise(() =>
+    createPackageWithOptions(sourceDir, path.join(resourcesDir, "app.asar"), {}),
+  );
+  return { stageDistDir } as const;
 });
 
 it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
@@ -1279,6 +1351,58 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
 
         assert.instanceOf(error, BundleNotSelfContainedError);
         assert.include(error.output, "t3code-deliberately-missing-package");
+      }),
+    ),
+  );
+
+  it.effect("rejects a macOS app whose packaged server bundle cannot resolve", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeMacPayloadFixture({
+          serverEntrySource: 'import "t3code-deliberately-missing-package";\n',
+        });
+        const error = yield* validateMacPackagedPayload({
+          stageDistDir: fixture.stageDistDir,
+        }).pipe(Effect.flip);
+
+        assert.instanceOf(error, BundleNotSelfContainedError);
+        assert.include(error.output, "t3code-deliberately-missing-package");
+      }),
+    ),
+  );
+
+  it.effect("accepts a macOS app whose packaged server bundle resolves", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeMacPayloadFixture({});
+        yield* validateMacPackagedPayload({ stageDistDir: fixture.stageDistDir });
+      }),
+    ),
+  );
+
+  it.effect("rejects a macOS stage without a packaged app", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const stageDistDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-mac-payload-test-" });
+        const error = yield* validateMacPackagedPayload({ stageDistDir }).pipe(Effect.flip);
+
+        assert.instanceOf(error, MacPackagedAppMissingError);
+      }),
+    ),
+  );
+
+  it.effect("rejects a macOS app without app.asar", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const stageDistDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-mac-payload-test-" });
+        yield* fs.makeDirectory(`${stageDistDir}/mac-arm64/T3 Code.app/Contents/Resources`, {
+          recursive: true,
+        });
+        const error = yield* validateMacPackagedPayload({ stageDistDir }).pipe(Effect.flip);
+
+        assert.instanceOf(error, BundleNotSelfContainedError);
       }),
     ),
   );
