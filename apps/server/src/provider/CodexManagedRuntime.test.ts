@@ -107,13 +107,46 @@ it.live.each(
         const runtime = yield* makeCodexManagedRuntime({
           instanceId,
           enabled: true,
-          config: decodeSettings({ setupMode: "managed", homePath: sharedHome }),
+          config: decodeSettings({
+            setupMode: "managed",
+            homePath: sharedHome,
+            customModels: [
+              {
+                slug: "gpt-6.1-sol",
+                capabilities: {
+                  optionDescriptors: [
+                    {
+                      id: "reasoningEffort",
+                      label: "Reasoning",
+                      type: "select",
+                      options: [{ id: "high", label: "High" }],
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
           environment: ambient,
         });
         yield* Effect.gen(function* () {
           const effective = yield* runtime.resolve;
           assert.strictEqual(leases, 1);
           assert.strictEqual(effective.config.binaryPath, executable.executablePath);
+          assert.deepEqual(effective.config.customModels, [
+            {
+              slug: "gpt-6.1-sol",
+              capabilities: {
+                optionDescriptors: [
+                  {
+                    id: "reasoningEffort",
+                    label: "Reasoning",
+                    type: "select",
+                    options: [{ id: "high", label: "High" }],
+                  },
+                ],
+              },
+            },
+          ]);
           assert.notStrictEqual(effective.config.homePath, ambient.CODEX_HOME);
           assert.equal(runtime.homeLayout.sharedHomePath, sharedHome);
           if (account === "primary") {

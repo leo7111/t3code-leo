@@ -125,6 +125,7 @@ export const makeCodexManagedRuntime = Effect.fn("makeCodexManagedRuntime")(func
     return {
       config: decodeSettings({
         enabled: options.enabled,
+        customModels: options.config.customModels,
         setupMode: "managed",
         binaryPath: executable.executablePath,
         homePath,
