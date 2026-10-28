@@ -1,10 +1,10 @@
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import * as NodeChildProcess from "node:child_process";
+import * as NodeURL from "node:url";
 
-const result = spawnSync(
+const result = NodeChildProcess.spawnSync(
   process.execPath,
   [
-    fileURLToPath(new URL("./build-desktop-artifact.ts", import.meta.url)),
+    NodeURL.fileURLToPath(new URL("./build-desktop-artifact.ts", import.meta.url)),
     "--platform",
     "win",
     "--target",

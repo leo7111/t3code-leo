@@ -1910,7 +1910,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     text: activePendingProgress ? activePendingProgress.customAnswer : prompt,
     available:
       canOperateThread &&
-      !isConnecting &&
       !isSendBusy &&
       !isChoiceOnlyPendingQuestion &&
       !activePendingIsResponding &&
@@ -1932,6 +1931,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     },
   });
 
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Keep imperative editor commands from mutating the draft during microphone capture.
   useLayoutEffect(() => {
     voiceInputBusyRef.current = voiceInput.isBusy;
   }, [voiceInput.isBusy]);

@@ -1,8 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - Tests use Node's glob matcher to verify electron-builder exclusions.
 import * as NodeCrypto from "node:crypto";
-import * as NodeFs from "node:fs";
+import * as NodeFS from "node:fs";
 import * as NodePath from "node:path";
-import * as NodeVm from "node:vm";
+import * as NodeVM from "node:vm";
 
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { createPackageWithOptions, extractFile } from "@electron/asar";
@@ -78,7 +78,7 @@ const decodePackageVersion = Schema.decodeUnknownEffect(
 );
 
 it("isolates Leo before boot even when launched from another T3 environment", () => {
-  const source = NodeFs.readFileSync(
+  const source = NodeFS.readFileSync(
     new URL("../apps/desktop/scripts/leo-boot.cjs", import.meta.url),
     "utf8",
   );
@@ -97,7 +97,7 @@ it("isolates Leo before boot even when launched from another T3 environment", ()
   ]) {
     const env: Record<string, string | undefined> = { ...inherited };
     let bootCalls = 0;
-    NodeVm.runInNewContext(source, {
+    NodeVM.runInNewContext(source, {
       process: { env },
       require(name: string) {
         if (name === "node:path") return NodePath.win32;

@@ -51,6 +51,17 @@ const ITEMS: ReadonlyArray<SettingsSearchItem> = [
   },
 ];
 
+it("routes Leo dictation settings to the current browser settings panel", () => {
+  for (const id of ["codex-voice-input-enabled", "voice-transcription-api-key"]) {
+    expect(SETTINGS_SEARCH_ITEMS.find((item) => item.id === id)?.to).toBe("/settings/browser");
+    expect(
+      searchSettings(id === "voice-transcription-api-key" ? "OpenAI API key" : "dictation").some(
+        (item) => item.id === id,
+      ),
+    ).toBe(true);
+  }
+});
+
 describe("searchSettings", () => {
   it("matches titles, sections, and remembered setting details", () => {
     expect(searchSettings("word", ITEMS).map((item) => item.id)).toEqual(["word-wrap"]);

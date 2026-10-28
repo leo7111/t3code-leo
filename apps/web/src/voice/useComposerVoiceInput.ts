@@ -58,6 +58,7 @@ export function useComposerVoiceInput(options: {
   const { state } = options;
   const onStateChange = useStableCallback(options.onStateChange);
   const revision = useRef({ ownerKey: options.ownerKey, text: options.text, version: 0 });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Track the editor revision used by the asynchronous recorder controller.
   useLayoutEffect(() => {
     if (revision.current.ownerKey !== options.ownerKey || revision.current.text !== options.text) {
       revision.current = {
@@ -80,7 +81,7 @@ export function useComposerVoiceInput(options: {
     if (!available || !canTranscribe || !status.data?.configured)
       throw new VoiceTranscriptionError(
         "unavailable",
-        "Add an OpenAI API key in Settings → Integrations → Voice input.",
+        "Add an OpenAI API key in Settings → Browser → Voice input.",
       );
     return {
       locale: navigator.language || "en-US",
@@ -122,6 +123,7 @@ export function useComposerVoiceInput(options: {
     environmentId: options.environmentId,
     available,
   });
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Cancel the native recorder when its composer owner or environment becomes unavailable.
   useLayoutEffect(() => {
     const previous = owner.current;
     if (
@@ -136,7 +138,9 @@ export function useComposerVoiceInput(options: {
       available,
     };
   }, [session, options.ownerKey, options.environmentId, available]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Release the microphone and pending transcription when the composer unmounts.
   useEffect(() => () => session.controller.dispose(), [session]);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Keep the recorder in step with browser visibility and remove its listeners on unmount.
   useEffect(() => {
     const hide = () => {
       void session.controller.appMovedToBackground();
@@ -182,7 +186,7 @@ export function useComposerVoiceInput(options: {
       if (disabledReason !== null) return;
       if (needsSetup) {
         void navigate({
-          to: "/settings/integrations",
+          to: "/settings/browser",
           search: { machine: options.environmentId },
           hash: "voice-transcription-api-key",
         });

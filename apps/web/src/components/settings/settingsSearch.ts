@@ -795,14 +795,14 @@ export const SETTINGS_SEARCH_ITEMS = [
   {
     id: "codex-voice-input-enabled",
     title: "Enable dictation",
-    to: "/settings/integrations",
+    to: "/settings/browser",
     scope: "environment",
     searchTerms: ["OpenAI Codex voice microphone enable disable hide transcription dictation"],
   },
   {
     id: "voice-transcription-api-key",
     title: "OpenAI API key",
-    to: "/settings/integrations",
+    to: "/settings/browser",
     scope: "environment",
     searchTerms: ["voice dictation microphone speech audio API key OpenAI transcription"],
   },
