@@ -31,7 +31,10 @@ const isSingleOriginDev = process.env.T3CODE_SINGLE_ORIGIN_DEV === "1";
 
 const port = Number(process.env.PORT ?? 5733);
 const explicitHost = process.env.HOST?.trim();
-const host = explicitHost || "localhost";
+// Base44 sandbox: bind every interface so the published port is reachable, but leave `explicitHost`
+// unset so the HMR socket follows the page origin instead of a wildcard host.
+const sandboxPreview = process.env.BASE44_PREVIEW_MODE === "1";
+const host = explicitHost || (sandboxPreview ? "0.0.0.0" : "localhost");
 const configuredWsUrl = isSingleOriginDev ? undefined : process.env.VITE_WS_URL?.trim();
 const configuredHttpUrl = isSingleOriginDev ? undefined : process.env.VITE_HTTP_URL?.trim();
 const configuredRelayUrl = repoEnv.VITE_T3CODE_RELAY_URL?.trim() || "";

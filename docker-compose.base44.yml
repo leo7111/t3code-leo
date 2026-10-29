@@ -16,7 +16,6 @@ services:
     environment:
       # Web dev server (Vite) — the only public entry point.
       - PORT=3000
-      - HOST=0.0.0.0
       # Backend server port, reached through the Vite proxy on the same origin.
       - T3CODE_PORT=3773
       - T3CODE_MODE=web
@@ -38,6 +37,8 @@ services:
       - |
         command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@12.14.0
         CI=true pnpm install --frozen-lockfile --store-dir node_modules/.pnpm-store
+        # A previous container's pid is meaningless here and can collide with an unrelated one.
+        rm -f /workspace/.t3/userdata/server-runtime.json
         ( cd apps/server && exec node --watch --watch-path=src --watch-path=../../packages --watch-path=package.json src/bin.ts ) &
         ( cd apps/web && exec ../../node_modules/.bin/vp dev ) &
         wait -n
