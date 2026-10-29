@@ -1,0 +1,59 @@
+# Base44 sandbox runbook: runs the monorepo from the bind-mounted checkout with
+# live reload. The web dev server owns host port 3000 and proxies /api, /ws,
+# /.well-known and the other backend prefixes to the T3 server (single-origin
+# dev), exactly like `vp run dev` does.
+name: t3code-leo
+
+services:
+  app:
+    image: node:26
+    working_dir: /workspace
+    init: true
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./:/workspace
+    environment:
+      # Web dev server (Vite) — the only public entry point.
+      - PORT=3000
+      - HOST=0.0.0.0
+      # Backend server port, reached through the Vite proxy on the same origin.
+      - T3CODE_PORT=3773
+      - T3CODE_MODE=web
+      - T3CODE_SINGLE_ORIGIN_DEV=1
+      - T3CODE_NO_BROWSER=1
+      - T3CODE_TELEMETRY_ENABLED=false
+      - T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD=0
+      # Dev state (auth sessions, sqlite) lives in the gitignored .t3 directory so
+      # pairing survives restarts.
+      - T3CODE_HOME=/workspace/.t3
+      # Pairing links print with the public preview origin instead of localhost.
+      - VITE_DEV_SERVER_URL=https://3000-${BASE44_PUBLIC_HOST_SUFFIX}
+      # Vite's allowedHosts must cover the proxied Host the sandbox proxy sends.
+      - T3CODE_DEV_ALLOWED_HOSTS=.${BASE44_SANDBOX_HOST_DOMAIN}
+      - BASE44_PREVIEW_MODE
+    command:
+      - bash
+      - -euc
+      - |
+        command -v pnpm >/dev/null 2>&1 || npm install -g pnpm@12.14.0
+        CI=true pnpm install --frozen-lockfile --store-dir node_modules/.pnpm-store
+        ( cd apps/server && exec node --watch --watch-path=src --watch-path=../../packages --watch-path=package.json src/bin.ts ) &
+        ( cd apps/web && exec ../../node_modules/.bin/vp dev ) &
+        wait -n
+        exit 1
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:3000/').then(r=>r.ok||process.exit(1)).then(()=>fetch('http://127.0.0.1:3000/api/auth/session')).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 240s
+    restart: on-failure
+    labels:
+      base44.project: T3 Code
+      base44.kind: web
+      base44.port: 3000
+      base44.docs: /

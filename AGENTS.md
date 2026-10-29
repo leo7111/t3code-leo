@@ -211,3 +211,12 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## Base44 sandbox
+
+- `docker compose -f docker-compose.base44.yml up -d` runs one `node:26` service from the bind-mounted checkout: `pnpm install --frozen-lockfile` (reusing `node_modules/.pnpm-store` when present), then the T3 server (`apps/server`, `T3CODE_PORT=3773`) and `vp dev` (`apps/web`) on host port 3000. Both run under `--watch` / HMR, so edits apply without a rebuild.
+- It is the same wiring `vp run dev` produces, only with fixed ports: the web dev server is the single origin and Vite proxies `/api`, `/ws` and `/.well-known` to the server. Do not set `VITE_HTTP_URL`/`VITE_WS_URL`; `T3CODE_SINGLE_ORIGIN_DEV=1` must stay.
+- `T3CODE_DEV_ALLOWED_HOSTS=.${BASE44_SANDBOX_HOST_DOMAIN}` keeps Vite's host check happy for the proxied preview host, and `VITE_DEV_SERVER_URL=https://3000-${BASE44_PUBLIC_HOST_SUFFIX}` makes printed pairing links point at the preview origin. Both come from sandbox variables; never hardcode a resolved host.
+- Server state (auth sessions, `statev2.sqlite`) lives in `.t3` at the repo root (gitignored), so pairing survives `restart`/`up`. Deleting `.t3` returns the app to the pairing screen.
+- The app is gated by environment pairing. Mint a token against the running server with `docker compose -f docker-compose.base44.yml exec -T app bash -lc "cd apps/server && node src/bin.ts pair --base-dir /workspace/.t3 --ttl 168h"` and paste it into the pairing screen (or open its `/pair#token=…` URL). The pairing cookie is HttpOnly and lasts 30 days; the preview proxy stores it, so it survives reloads.
+- Agent turns need a provider CLI logged in inside the container (`codex login`, `claude auth login`, …). None are installed here, so the UI works but provider-backed turns do not. `pnpm install` is the only startup step that needs the network.
