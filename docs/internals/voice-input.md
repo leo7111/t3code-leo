@@ -24,25 +24,12 @@ cancellation between native calls and discards late results.
 
 ## Environment-backed transcription
 
-The web capture adapter uses MediaRecorder and the existing shared controller.
 Capture stays on the client even for remote environments. The prepared transcriber
 binds the environment before recording; it never falls back to another server.
-Recordings are limited to five minutes and 8 MiB. Audio remains temporary client
-input and is uploaded through an authorized RPC, separate from durable attachments.
-The server sends one multipart request to OpenAI's transcription endpoint, with a
-two-minute timeout and no automatic retries of billable uploads.
+The server deliberately avoids automatic retries because uploads are billable;
+cancelling a request cannot undo billing for an upload already received by OpenAI.
 
-Dictation settings live under Chat for one selected machine.
-The enable preference persists with server settings and hides the microphone when
-off, even if a key is configured; other providers do not show this control. Clicking the
-microphone without a configured key opens that machine's API key settings. The key
-is stored by ServerSecretStore, decoded as Redacted at the RPC boundary, and never
-returned to clients. A stored key overrides the server's optional OPENAI_API_KEY;
-removing it restores that environment fallback. Saving keys requires settings-write
-permission; transcription requires orchestration-operate permission. Configuration
-status requires only orchestration-read permission and returns no credential.
-
-OpenAI API billing is separate from ChatGPT and Codex subscriptions. Only safe,
-fixed error messages cross the RPC boundary; upstream response bodies and nested
-HTTP errors are discarded. Cancellation interrupts pending client work and prevents
-late draft insertion, but an upload already received by OpenAI may still be billed.
+See the [capture adapter](../../apps/web/src/voice/browserVoiceRecorder.ts),
+[environment binding](../../packages/client-runtime/src/voice-input/environment.ts), and
+[transcription service](../../apps/server/src/voice/VoiceTranscription.ts) for the
+limits, configuration, and transport behavior.

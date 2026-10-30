@@ -8,6 +8,7 @@ import {
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Logger from "effect/Logger";
 import * as Schema from "effect/Schema";
 import * as Option from "effect/Option";
 import * as Redacted from "effect/Redacted";
@@ -16,7 +17,12 @@ import * as ServerSettings from "../serverSettings.ts";
 import * as Deferred from "effect/Deferred";
 import * as Fiber from "effect/Fiber";
 import * as TestClock from "effect/testing/TestClock";
-import { HttpClient, HttpClientResponse, type HttpClientRequest } from "effect/http";
+import {
+  HttpClient,
+  HttpClientError,
+  HttpClientResponse,
+  type HttpClientRequest,
+} from "effect/http";
 import * as VoiceTranscription from "./VoiceTranscription.ts";
 
 const decodeVoiceKey = Schema.decodeUnknownSync(VoiceConfigureApiKeyInput);
@@ -47,20 +53,35 @@ const audio = {
   mimeType: "audio/webm" as const,
 };
 function harness(
-  options: { key?: string; status?: number; body?: string; enabled?: () => boolean } = {},
+  options: {
+    key?: string;
+    status?: number;
+    body?: string;
+    enabled?: () => boolean;
+    transportFailure?: boolean;
+  } = {},
 ) {
   const requests: HttpClientRequest.HttpClientRequest[] = [];
   const client = HttpClient.make((request) =>
-    Effect.sync(() => {
-      requests.push(request);
-      return HttpClientResponse.fromWeb(
-        request,
-        new Response(options.body ?? JSON.stringify({ text: "  שלום T3 Code  " }), {
-          status: options.status ?? 200,
-          headers: { "Content-Type": "application/json" },
+    options.transportFailure
+      ? Effect.fail(
+          new HttpClientError.HttpClientError({
+            reason: new HttpClientError.TransportError({
+              request,
+              cause: new Error("private upstream test-only-key"),
+            }),
+          }),
+        )
+      : Effect.sync(() => {
+          requests.push(request);
+          return HttpClientResponse.fromWeb(
+            request,
+            new Response(options.body ?? JSON.stringify({ text: "  שלום T3 Code  " }), {
+              status: options.status ?? 200,
+              headers: { "Content-Type": "application/json" },
+            }),
+          );
         }),
-      );
-    }),
   );
   const layer = VoiceTranscription.layer.pipe(
     Layer.provide(Layer.succeed(HttpClient.HttpClient, client)),
@@ -77,6 +98,39 @@ function harness(
 }
 
 describe("OpenAI voice transcription", () => {
+  it.effect.each([
+    { transportFailure: true, category: "TransportError", reason: "unavailable" },
+    { status: 429, category: 429, reason: "rate_limited" },
+    {
+      body: "private upstream test-only-key",
+      category: "invalid_response",
+      reason: "invalid_response",
+    },
+  ])("logs only a bounded diagnostic for $reason", (options) => {
+    const messages: unknown[] = [];
+    const logger = Logger.make<unknown, void>(({ message }) => {
+      messages.push(message);
+    });
+    const h = harness({ key: "test-only-key", ...options });
+    return Effect.gen(function* () {
+      const service = yield* VoiceTranscription.VoiceTranscription;
+      const error = yield* service.transcribe(audio).pipe(Effect.flip);
+      expect(error.reason).toBe(options.reason);
+      expect(messages).toEqual([
+        [
+          expect.stringMatching(/^voice transcription (request|response) failed$/),
+          typeof options.category === "number"
+            ? { status: options.category }
+            : { category: options.category },
+        ],
+      ]);
+      expect(JSON.stringify(messages)).not.toContain("test-only-key");
+      expect(JSON.stringify(messages)).not.toContain("private upstream");
+      expect(JSON.stringify(error)).not.toContain("test-only-key");
+    }).pipe(
+      Effect.provide(Layer.mergeAll(h.layer, Logger.layer([logger], { mergeWithExisting: false }))),
+    );
+  });
   it.effect("honors disabling and re-enabling without removing a configured key", () => {
     let enabled = true;
     const h = harness({ key: "test-only-key", enabled: () => enabled });

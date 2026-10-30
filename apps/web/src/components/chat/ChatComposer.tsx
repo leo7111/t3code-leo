@@ -3,6 +3,7 @@ import {
   type VoiceInputState,
 } from "@t3tools/client-runtime/voice-input";
 import { useComposerVoiceInput } from "../../voice/useComposerVoiceInput";
+import { composerVoiceOwnerKey } from "../../voice/availability";
 import { ComposerVoiceControls, ComposerVoiceStatus } from "./ComposerVoiceControls";
 import { useComposerTypingGuard } from "./useComposerTypingGuard";
 import { insertAttachmentReferencesForDraft } from "./composerAttachmentReferences";
@@ -1833,7 +1834,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     };
   };
   const readComposerSnapshotStable = useStableCallback(readComposerSnapshot);
-  const voiceOwnerKey = `${environmentId}:${composerDraftTargetKey}:${activePendingProgress?.activeQuestion?.id ?? "prompt"}`;
+  const voiceOwnerKey = composerVoiceOwnerKey(
+    environmentId,
+    composerDraftTargetKey,
+    activePendingUserInput?.requestId,
+    activePendingProgress?.activeQuestion?.id,
+  );
   const voiceInput = useComposerVoiceInput({
     provider: multipleModelSelections === null ? selectedProviderStatus : null,
     state: voiceState,

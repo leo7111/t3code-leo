@@ -189,6 +189,13 @@ describe("searchSettings", () => {
 });
 
 describe("settings search targets", () => {
+  it("routes the dictation API key result to the always-present enable switch", () => {
+    const result = searchSettings("dictation API key").find(
+      (item) => item.id === "voice-transcription-api-key",
+    )!;
+    expect(result.targetId).toBe("codex-voice-input-enabled");
+    expect(getSettingsSearchTargetScope(result.targetId ?? result.id)?.scope).toBe("environment");
+  });
   it("requires an environment for the resolved telemetry export destination", () => {
     const result = searchSettings("OpenTelemetry export").find(
       (item) => item.id === "telemetry-export",

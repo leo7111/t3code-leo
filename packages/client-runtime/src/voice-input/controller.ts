@@ -440,9 +440,14 @@ export class VoiceInputController {
       this.dependencies.commitDraft(result.text, result.selection);
       this.setState(IDLE_STATE);
       onCommitted?.(result.text);
-    } catch {
+    } catch (error) {
       if (this.isCurrent(operationToken)) {
-        this.setError("Could not finish voice recording.", "retry");
+        this.setError(
+          error instanceof VoiceTranscriptionError
+            ? error.message
+            : "Could not finish voice recording.",
+          "retry",
+        );
       }
     } finally {
       this.finishing = false;

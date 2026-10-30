@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { VoiceInputController } from "@t3tools/client-runtime/voice-input";
 import { BrowserVoiceRecorder } from "./browserVoiceRecorder";
+import { VOICE_AUDIO_MAX_BYTES } from "@t3tools/contracts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -10,7 +11,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function setup(options: { permission?: Promise<MediaStream> } = {}) {
+function setup(options: { permission?: Promise<MediaStream>; finalChunk?: Blob } = {}) {
   const track = Object.assign(new EventTarget(), { stop: vi.fn() });
   const stream = {
     getTracks: () => [track],
@@ -28,7 +29,7 @@ function setup(options: { permission?: Promise<MediaStream> } = {}) {
       queueMicrotask(() => {
         this.dispatchEvent(
           Object.assign(new Event("dataavailable"), {
-            data: new Blob(["speech"], { type: "audio/webm" }),
+            data: options.finalChunk ?? new Blob(["speech"], { type: "audio/webm" }),
           }),
         );
         this.dispatchEvent(new Event("stop"));
@@ -47,6 +48,44 @@ function setup(options: { permission?: Promise<MediaStream> } = {}) {
 }
 
 describe("browser voice capture", () => {
+  it("rejects concurrent stops when the final chunk exceeds the size limit", async () => {
+    using h = setup({ finalChunk: new Blob([new Uint8Array(VOICE_AUDIO_MAX_BYTES)]) });
+    const onStatus = vi.fn();
+    const recorder = new BrowserVoiceRecorder(onStatus);
+    await recorder.prepareToRecordAsync();
+    recorder.record({ forDuration: 300 });
+    h.instances[0]!.dispatchEvent(
+      Object.assign(new Event("dataavailable"), { data: new Blob(["earlier speech"]) }),
+    );
+    const results = await Promise.allSettled([recorder.stop(), recorder.stop()]);
+    expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    await expect(recorder.stop()).rejects.toThrow("Try a shorter recording");
+    expect(recorder.uri).toBeNull();
+    expect(h.track.stop).toHaveBeenCalledTimes(1);
+    expect(onStatus).toHaveBeenLastCalledWith(
+      expect.objectContaining({ hasError: true, isFinished: false, url: null }),
+    );
+    expect(onStatus).not.toHaveBeenCalledWith(expect.objectContaining({ isFinished: true }));
+    await expect(recorder.release()).resolves.toBeUndefined();
+  });
+
+  it("cleans up an oversized final chunk at the automatic duration stop", async () => {
+    using h = setup({ finalChunk: new Blob([new Uint8Array(VOICE_AUDIO_MAX_BYTES + 1)]) });
+    vi.useFakeTimers();
+    const recorder = new BrowserVoiceRecorder(vi.fn());
+    try {
+      await recorder.prepareToRecordAsync();
+      recorder.record({ forDuration: 1 });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(recorder.uri).toBeNull();
+      expect(h.track.stop).toHaveBeenCalledTimes(1);
+      await expect(recorder.stop()).rejects.toThrow("Try a shorter recording");
+    } finally {
+      await recorder.release();
+      vi.useRealTimers();
+    }
+  });
+
   it("automatically stops at the recording limit and releases microphone tracks", async () => {
     using h = setup();
     vi.useFakeTimers();

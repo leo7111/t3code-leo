@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind } from "@t3tools/contracts";
-import { canShowCodexVoiceInput } from "./availability";
+import { canShowCodexVoiceInput, composerVoiceOwnerKey } from "./availability";
 
 const ready = {
   driver: ProviderDriverKind.make("codex"),
@@ -9,6 +9,14 @@ const ready = {
   status: "ready" as const,
   auth: { status: "authenticated" as const },
 };
+
+it("gives replacement pending requests distinct voice owners despite identical question ids", () => {
+  const first = composerVoiceOwnerKey("environment", "draft", "request-one", "question");
+  const second = composerVoiceOwnerKey("environment", "draft", "request-two", "question");
+  expect(first).not.toBe(second);
+  expect(first).toBe(composerVoiceOwnerKey("environment", "draft", "request-one", "question"));
+  expect(first).not.toBe(composerVoiceOwnerKey("environment", "draft", undefined, undefined));
+});
 
 describe("composer voice provider availability", () => {
   it("allows a ready authenticated Codex provider", () => {

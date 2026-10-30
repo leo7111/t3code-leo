@@ -832,6 +832,7 @@ export const SETTINGS_SEARCH_ITEMS = [
   },
   {
     id: "voice-transcription-api-key",
+    targetId: "codex-voice-input-enabled",
     title: "OpenAI API key",
     to: "/settings/chat",
     scope: "environment",

@@ -1,5 +1,9 @@
 import { VOICE_AUDIO_MAX_BYTES } from "@t3tools/contracts";
-import type { VoiceRecorder, VoiceRecorderStatus } from "@t3tools/client-runtime/voice-input";
+import {
+  VoiceTranscriptionError,
+  type VoiceRecorder,
+  type VoiceRecorderStatus,
+} from "@t3tools/client-runtime/voice-input";
 
 const MIME_TYPES = ["audio/webm;codecs=opus", "audio/mp4", "audio/ogg;codecs=opus", "audio/webm"];
 
@@ -10,6 +14,7 @@ export class BrowserVoiceRecorder implements VoiceRecorder {
   private recorder: MediaRecorder | null = null;
   private chunks: Blob[] = [];
   private bytes = 0;
+  private recordingError: VoiceTranscriptionError | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopping: Promise<void> | null = null;
   private finishStop: (() => void) | null = null;
@@ -33,14 +38,19 @@ export class BrowserVoiceRecorder implements VoiceRecorder {
     this.recorder = new MediaRecorder(this.stream, { mimeType, audioBitsPerSecond: 64_000 });
     this.chunks = [];
     this.bytes = 0;
+    this.recordingError = null;
     this.stopping = null;
     this.recorder.addEventListener("dataavailable", ({ data }) => {
       this.bytes += data.size;
       if (this.bytes > VOICE_AUDIO_MAX_BYTES) {
+        this.recordingError ??= new VoiceTranscriptionError(
+          "transcription-failed",
+          "This recording is too large. Try a shorter recording.",
+        );
         this.onStatus({
           isFinished: false,
           hasError: true,
-          error: "This recording is too large. Try a shorter recording.",
+          error: this.recordingError.message,
           url: null,
         });
         return;
@@ -58,6 +68,12 @@ export class BrowserVoiceRecorder implements VoiceRecorder {
     this.recorder.addEventListener("stop", () => {
       this.clearTimer();
       this.releaseTracks();
+      if (this.recordingError) {
+        this.chunks = [];
+        this.finishStop?.();
+        this.finishStop = null;
+        return;
+      }
       const blob = new Blob(this.chunks, { type: this.mimeType });
       this.chunks = [];
       this.uri = URL.createObjectURL(blob);
@@ -81,25 +97,33 @@ export class BrowserVoiceRecorder implements VoiceRecorder {
   record({ forDuration }: { readonly forDuration: number }): void {
     if (!this.recorder) throw new Error("The recorder has not been prepared.");
     this.recorder.start(1_000);
-    this.timer = setTimeout(() => void this.stop(), forDuration * 1_000);
+    this.timer = setTimeout(() => void this.stop().catch(() => {}), forDuration * 1_000);
   }
 
-  stop(): Promise<void> {
-    if (this.stopping) return this.stopping;
+  async stop(): Promise<void> {
+    if (this.stopping) {
+      await this.stopping;
+      if (this.recordingError) throw this.recordingError;
+      return;
+    }
     this.clearTimer();
     if (!this.recorder || this.recorder.state === "inactive") {
       this.releaseTracks();
-      return Promise.resolve();
+      if (this.recordingError) throw this.recordingError;
+      return;
     }
     this.stopping = new Promise<void>((resolve) => {
       this.finishStop = resolve;
     });
     this.recorder.stop();
-    return this.stopping;
+    await this.stopping;
+    if (this.recordingError) throw this.recordingError;
   }
 
   async release(): Promise<void> {
-    await this.stop();
+    try {
+      await this.stop();
+    } catch {}
     this.releaseTracks();
     this.recorder = null;
     this.chunks = [];

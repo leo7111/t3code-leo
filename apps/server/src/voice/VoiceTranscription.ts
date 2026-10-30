@@ -104,9 +104,15 @@ const make = Effect.gen(function* () {
         HttpClientRequest.bearerToken(apiKey),
         HttpClientRequest.bodyFormData(body),
         httpClient.execute,
+        Effect.tapError((error) =>
+          Effect.logWarning("voice transcription request failed", { category: error.reason._tag }),
+        ),
         Effect.mapError(() => new VoiceTranscriptionError({ reason: "unavailable" })),
       );
       if (response.status < 200 || response.status >= 300) {
+        yield* Effect.logWarning("voice transcription response failed", {
+          status: response.status,
+        });
         return yield* new VoiceTranscriptionError({
           reason:
             response.status === 401 || response.status === 403
@@ -118,6 +124,11 @@ const make = Effect.gen(function* () {
       }
       return yield* HttpClientResponse.schemaBodyJson(VoiceTranscribeResult)(response).pipe(
         Effect.map(({ text }) => ({ text: text.trim() })),
+        Effect.tapError(() =>
+          Effect.logWarning("voice transcription response failed", {
+            category: "invalid_response",
+          }),
+        ),
         Effect.mapError(() => new VoiceTranscriptionError({ reason: "invalid_response" })),
       );
     },
