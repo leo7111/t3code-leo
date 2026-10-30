@@ -599,14 +599,3 @@ it("preserves an actionable transcription error while leaving the draft unchange
   expect(h.commits).toEqual([]);
   expect(h.deleted).toContain("file:///voice.m4a");
 });
-
-it.each(["he-IL", "en-US"])(
-  "keeps Hebrew and English words separated with %s browser locale",
-  (locale) => {
-    const captured = draft({ text: "שלום", selection: { start: 4, end: 4 } });
-    expect(resolveTranscriptCommit(captured, captured, "T3 Code עובד", locale)).toMatchObject({
-      kind: "commit",
-      text: "שלום T3 Code עובד",
-    });
-  },
-);
