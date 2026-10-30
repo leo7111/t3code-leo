@@ -9,7 +9,11 @@ import {
   type VoiceInputControllerDependencies,
   type VoiceRecorder,
 } from "./controller.ts";
-import type { PreparedVoiceTranscription, VoiceTranscriber } from "./transcription.ts";
+import {
+  VoiceTranscriptionError,
+  type PreparedVoiceTranscription,
+  type VoiceTranscriber,
+} from "./transcription.ts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -109,6 +113,50 @@ describe("resolveTranscriptCommit", () => {
 
 describe("VoiceInputController", () => {
   beforeEach(() => resetVoiceInputGlobalsForTests());
+
+  it("commits the transcript before submitting once when Stop is requested twice", async () => {
+    const harness = createHarness();
+    const submit = vi.fn((text: string) => {
+      expect(harness.controller.currentState.phase).toBe("idle");
+      expect(harness.commits.at(-1)?.text).toBe(text);
+    });
+    await harness.controller.start();
+    await Promise.all([harness.controller.stop(submit), harness.controller.stop(submit)]);
+    expect(submit).toHaveBeenCalledExactlyOnceWith("hello new text");
+    expect(harness.recorder.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["empty", "failure", "cancel", "owner", "edit"] as const)(
+    "does not submit after a %s transcription result",
+    async (outcome) => {
+      const entered = deferred<void>();
+      const transcript = deferred<string>();
+      const harness = createHarness({
+        getTranscriber: () => ({
+          prepare: async () =>
+            preparedTranscription(async () => {
+              entered.resolve(undefined);
+              return transcript.promise;
+            }),
+        }),
+      });
+      const submit = vi.fn();
+      await harness.controller.start();
+      const stopped = harness.controller.stop(submit);
+      await entered.promise;
+      if (outcome === "cancel") harness.controller.cancel();
+      if (outcome === "owner") {
+        harness.setDraft(draft({ ownerKey: "another-thread" }));
+        harness.controller.ownerChanged();
+      }
+      if (outcome === "edit") harness.setDraft(draft({ text: "newer draft", revision: 2 }));
+      if (outcome === "failure") transcript.reject(new Error("transcription failed"));
+      else transcript.resolve(outcome === "empty" ? "  " : "dictated text");
+      await stopped;
+      expect(submit).not.toHaveBeenCalled();
+      expect(harness.commits).toEqual([]);
+    },
+  );
 
   it("checks support and permission before recording", async () => {
     const unsupported = createHarness({ getTranscriber: () => null });
@@ -532,3 +580,33 @@ describe("VoiceInputController", () => {
     expect(harness.controller.currentState.error).toContain("background");
   });
 });
+
+it("preserves an actionable transcription error while leaving the draft unchanged", async () => {
+  const h = createHarness({
+    getTranscriber: () => ({
+      prepare: async () =>
+        preparedTranscription(async () => {
+          throw new VoiceTranscriptionError(
+            "transcription-failed",
+            "Check API billing, then try again.",
+          );
+        }),
+    }),
+  });
+  await h.controller.start();
+  await h.controller.stop();
+  expect(h.controller.currentState.error).toBe("Check API billing, then try again.");
+  expect(h.commits).toEqual([]);
+  expect(h.deleted).toContain("file:///voice.m4a");
+});
+
+it.each(["he-IL", "en-US"])(
+  "keeps Hebrew and English words separated with %s browser locale",
+  (locale) => {
+    const captured = draft({ text: "שלום", selection: { start: 4, end: 4 } });
+    expect(resolveTranscriptCommit(captured, captured, "T3 Code עובד", locale)).toMatchObject({
+      kind: "commit",
+      text: "שלום T3 Code עובד",
+    });
+  },
+);

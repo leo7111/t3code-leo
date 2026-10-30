@@ -31,6 +31,15 @@ import {
 import * as RpcAuthorization from "./RpcAuthorization.ts";
 
 describe("RPC authorization scopes", () => {
+  it("requires operate permission for billable transcription, but only read permission for availability", () => {
+    expect(requiredScopeForRpcMethod(WS_METHODS.voiceConfigureApiKey)).toBe(AuthSettingsWriteScope);
+    expect(requiredScopeForRpcMethod(WS_METHODS.voiceTranscribe)).toBe(
+      AuthOrchestrationOperateScope,
+    );
+    expect(requiredScopeForRpcMethod(WS_METHODS.voiceTranscriptionStatus)).toBe(
+      AuthOrchestrationReadScope,
+    );
+  });
   it("declares exactly one scope for every RPC in the server group", () => {
     expect(new Set(Object.keys(RPC_REQUIRED_SCOPES))).toEqual(new Set(WsRpcGroup.requests.keys()));
   });

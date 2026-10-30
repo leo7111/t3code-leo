@@ -203,6 +203,7 @@ import * as KnownWorkspaces from "./workspace/KnownWorkspaces.ts";
 import * as WorkspaceFileSystem from "./workspace/WorkspaceFileSystem.ts";
 import { readWorkflowScript } from "./orchestration-v2/workflowScriptQuery.ts";
 import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
+import * as VoiceTranscription from "./voice/VoiceTranscription.ts";
 import * as VcsStatusBroadcaster from "./vcs/VcsStatusBroadcaster.ts";
 import * as VcsProvisioningService from "./vcs/VcsProvisioningService.ts";
 import * as GitWorkflowService from "./git/GitWorkflowService.ts";
@@ -1271,6 +1272,7 @@ export const layerWsRpc = (
       const scheduledTasks = yield* ScheduledTasks.ScheduledTaskService;
       const secretRequests = yield* SecretRequests.SecretRequests;
       const guestShares = yield* GuestShareService.GuestShareService;
+      const voiceTranscription = yield* VoiceTranscription.VoiceTranscription;
       const pullRequests = yield* PullRequestService.PullRequestService;
       const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
       const pullRequestSync = yield* PullRequestSyncReactor.PullRequestSyncReactor;
@@ -2166,6 +2168,9 @@ export const layerWsRpc = (
           Effect.annotateCurrentSpan({ "orchestration_v2.thread_id": input.threadId }).pipe(
             Effect.andThen(secretRequests.answer(input)),
           ),
+        [WS_METHODS.voiceTranscribe]: (input) => voiceTranscription.transcribe(input),
+        [WS_METHODS.voiceTranscriptionStatus]: () => voiceTranscription.status,
+        [WS_METHODS.voiceConfigureApiKey]: (input) => voiceTranscription.configureApiKey(input),
         [WS_METHODS.scheduledTasksListWebhookDeliveries]: (input) =>
           Effect.annotateCurrentSpan({ "scheduled_task.id": input.id }).pipe(
             Effect.andThen(scheduledTasks.listWebhookDeliveries(input)),
@@ -3267,6 +3272,7 @@ export const WS_RPC_SERVER_OPTIONS = {
 export const layer = Layer.unwrap(
   Effect.gen(function* () {
     const serverBrowser = yield* ServerBrowser.ServerBrowser;
+    const voiceTranscription = yield* VoiceTranscription.VoiceTranscription;
     const serverSelfUpdate = yield* ServerSelfUpdate.ServerSelfUpdate;
     const pullRequests = yield* PullRequestService.PullRequestService;
     const reviewGuides = yield* PullRequestReviewGuideService.PullRequestReviewGuideService;
@@ -3342,6 +3348,9 @@ export const layer = Layer.unwrap(
               Layer.provide(AgentSessionScanner.layer),
               Layer.provide(ProviderMaintenanceRunner.layer),
               Layer.provide(Layer.succeed(ServerSelfUpdate.ServerSelfUpdate, serverSelfUpdate)),
+              Layer.provide(
+                Layer.succeed(VoiceTranscription.VoiceTranscription, voiceTranscription),
+              ),
               // Share server-lifetime PR caches so WS mutations invalidate every client's HTTP diffs.
               Layer.provide(Layer.succeed(PullRequestService.PullRequestService, pullRequests)),
               Layer.provide(OtlpEndpointCheck.layer),

@@ -34,6 +34,13 @@ import {
   ChatGptHandoffState,
 } from "./providerSetup.ts";
 import * as Schema from "effect/Schema";
+import {
+  VoiceTranscribeInput,
+  VoiceTranscribeResult,
+  VoiceTranscriptionStatus,
+  VoiceConfigureApiKeyInput,
+  VoiceTranscriptionError,
+} from "./voiceTranscription.ts";
 import * as Rpc from "effect/rpc/Rpc";
 import * as RpcGroup from "effect/rpc/RpcGroup";
 import * as RpcMiddleware from "effect/rpc/RpcMiddleware";
@@ -539,6 +546,9 @@ export const WS_METHODS = {
   scheduledTasksRunNow: "scheduledTasks.runNow",
   scheduledTasksRotateWebhookToken: "scheduledTasks.rotateWebhookToken",
   secretsAnswerRequest: "secrets.answerRequest",
+  voiceTranscribe: "voice.transcribe",
+  voiceTranscriptionStatus: "voice.transcriptionStatus",
+  voiceConfigureApiKey: "voice.configureApiKey",
   guestShareCreate: "guestShare.create",
   scheduledTasksListWebhookDeliveries: "scheduledTasks.listWebhookDeliveries",
   scheduledTasksGetWebhookDelivery: "scheduledTasks.getWebhookDelivery",
@@ -1913,6 +1923,22 @@ const WsSecretsAnswerRequestRpc = Rpc.make(WS_METHODS.secretsAnswerRequest, {
   error: Schema.Union([SecretRequestError, EnvironmentAuthorizationError]),
 });
 
+const WsVoiceTranscribeRpc = Rpc.make(WS_METHODS.voiceTranscribe, {
+  payload: VoiceTranscribeInput,
+  success: VoiceTranscribeResult,
+  error: Schema.Union([VoiceTranscriptionError, EnvironmentAuthorizationError]),
+});
+const WsVoiceTranscriptionStatusRpc = Rpc.make(WS_METHODS.voiceTranscriptionStatus, {
+  payload: Schema.Struct({}),
+  success: VoiceTranscriptionStatus,
+  error: Schema.Union([VoiceTranscriptionError, EnvironmentAuthorizationError]),
+});
+const WsVoiceConfigureApiKeyRpc = Rpc.make(WS_METHODS.voiceConfigureApiKey, {
+  payload: VoiceConfigureApiKeyInput,
+  success: VoiceTranscriptionStatus,
+  error: Schema.Union([VoiceTranscriptionError, EnvironmentAuthorizationError]),
+});
+
 const WsScheduledTasksListWebhookDeliveriesRpc = Rpc.make(
   WS_METHODS.scheduledTasksListWebhookDeliveries,
   {
@@ -2013,6 +2039,9 @@ export const WsRpcGroup = RpcGroup.make(
   WsScheduledTasksRunNowRpc,
   WsScheduledTasksRotateWebhookTokenRpc,
   WsSecretsAnswerRequestRpc,
+  WsVoiceTranscribeRpc,
+  WsVoiceTranscriptionStatusRpc,
+  WsVoiceConfigureApiKeyRpc,
   WsScheduledTasksListWebhookDeliveriesRpc,
   WsScheduledTasksGetWebhookDeliveryRpc,
   WsServerReportClientActivityRpc,
