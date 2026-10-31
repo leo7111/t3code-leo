@@ -24,6 +24,10 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
       - uses: ./.github/actions/setup-ci-deps
       - name: Install Chromium for dictation regression tests
         run: node apps/web/node_modules/playwright/cli.js install --with-deps --only-shell chromium
@@ -43,6 +47,10 @@ jobs:
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
       - name: Validate version and release target
         uses: actions/github-script@v8
         with:
