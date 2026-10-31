@@ -2740,6 +2740,25 @@ export function resolveMockUpdateServerUrl(mockUpdateServerPort: number | undefi
   return `http://localhost:${mockUpdateServerPort ?? 3000}`;
 }
 
+export const resolveDesktopPublishConfig = Effect.fn("resolveDesktopPublishConfig")(function* (
+  version: string,
+  mockUpdates: boolean,
+  mockUpdateServerPort: number | undefined,
+  leoBuild = LEO_BUILD,
+) {
+  if (leoBuild) {
+    return /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)
+      ? [{ provider: "github", owner: "leo7111", repo: "t3code-leo", releaseType: "release" }]
+      : null;
+  }
+  if (isDesktopPreviewVersion(version)) return null;
+  const publishConfig = yield* resolveGitHubPublishConfig(resolveDesktopUpdateChannel(version));
+  if (publishConfig) return [publishConfig];
+  return mockUpdates
+    ? [{ provider: "generic", url: resolveMockUpdateServerUrl(mockUpdateServerPort) }]
+    : null;
+});
+
 // electron-builder reads user-agent syntax (pnpm/version), not packageManager syntax (pnpm@version).
 export function resolvePackageManagerUserAgent(packageManager: string): string {
   const trimmed = packageManager.trim();
@@ -2806,20 +2825,11 @@ export const createBuildConfig = Effect.fn("createBuildConfig")(function* (
   };
   const updateChannel = resolveDesktopUpdateChannel(version);
   // Missing publish config infers a GitHub feed from tokens; staging has no repository, so manifest generation would crash.
-  buildConfig.publish = null;
-  if (!LEO_BUILD && !isDesktopPreviewVersion(version)) {
-    const publishConfig = yield* resolveGitHubPublishConfig(updateChannel);
-    if (publishConfig) {
-      buildConfig.publish = [publishConfig];
-    } else if (mockUpdates) {
-      buildConfig.publish = [
-        {
-          provider: "generic",
-          url: resolveMockUpdateServerUrl(mockUpdateServerPort),
-        },
-      ];
-    }
-  }
+  buildConfig.publish = yield* resolveDesktopPublishConfig(
+    version,
+    mockUpdates,
+    mockUpdateServerPort,
+  );
 
   if (platform === "mac") {
     const path = yield* Path.Path;

@@ -1,10 +1,14 @@
 import { useRef, useState } from "react";
 import { expect, it, vi } from "vite-plus/test";
 import { page } from "vite-plus/test/browser";
-import { EnvironmentId, type ServerProvider } from "@t3tools/contracts";
+import { EnvironmentId, VOICE_AUDIO_MAX_BYTES, type ServerProvider } from "@t3tools/contracts";
 import type { VoiceInputState } from "@t3tools/client-runtime/voice-input";
 import { render, stubGlobal } from "../../test/render";
-import { ComposerVoiceControls } from "../components/chat/ComposerVoiceControls";
+import {
+  ComposerVoiceControls,
+  ComposerVoiceStatus,
+} from "../components/chat/ComposerVoiceControls";
+import { composerVoiceOwnerKey } from "./availability";
 import { useStableCallback } from "../hooks/useStableCallback";
 import { useComposerVoiceInput } from "./useComposerVoiceInput";
 
@@ -29,7 +33,7 @@ vi.mock("../state/query", () => ({
   useEnvironmentQuery: () => ({ data: { configured: true }, isPending: false, error: null }),
 }));
 
-function setup() {
+function setup(finalChunk?: Blob) {
   backend.transcribe.mockReset();
   let complete!: (result: unknown) => void;
   let fail!: (error: Error) => void;
@@ -52,7 +56,7 @@ function setup() {
       queueMicrotask(() => {
         this.dispatchEvent(
           Object.assign(new Event("dataavailable"), {
-            data: new Blob(["test speech"], { type: "audio/webm" }),
+            data: finalChunk ?? new Blob(["test speech"], { type: "audio/webm" }),
           }),
         );
         this.dispatchEvent(new Event("stop"));
@@ -95,6 +99,7 @@ function Composer({ ownerKey = "test:thread" }: { ownerKey?: string }) {
   return (
     <>
       <textarea aria-label="Message" value={text} readOnly />
+      <ComposerVoiceStatus state={state} onDismiss={voice.cancel} />
       <ComposerVoiceControls
         state={state}
         disabledReason={voice.disabledReason}
@@ -133,6 +138,34 @@ it("dictates, transcribes, and sends the committed React draft exactly once", as
   await expect.element(screen.getByLabelText("Sent messages")).toHaveTextContent('["hello world"]');
 });
 
+it("retries the same audio after a failed send without submitting the message", async () => {
+  const fake = setup();
+  using _recorder = stubGlobal("MediaRecorder", fake.Recorder);
+  using _microphone = vi
+    .spyOn(navigator.mediaDevices, "getUserMedia")
+    .mockResolvedValue(fake.stream as unknown as MediaStream);
+  await using screen = await render(<Composer />);
+  await screen.getByRole("button", { name: "Dictate", exact: true }).click();
+  await screen.getByRole("button", { name: "Submit message" }).click();
+  await vi.waitFor(() => expect(backend.transcribe).toHaveBeenCalledTimes(1));
+  fake.fail(new Error("connection lost"));
+  await expect.element(screen.getByRole("button", { name: "Retry dictation" })).toBeEnabled();
+  backend.transcribe.mockResolvedValueOnce({
+    _tag: "Success",
+    value: { text: "recovered speech" },
+  });
+  await screen.getByRole("button", { name: "Retry dictation" }).click();
+  await expect
+    .element(screen.getByRole("textbox", { name: "Message" }))
+    .toHaveValue("recovered speech");
+  expect(backend.transcribe).toHaveBeenCalledTimes(2);
+  expect(backend.transcribe.mock.calls[1]![0].input.audioBase64).toBe(
+    backend.transcribe.mock.calls[0]![0].input.audioBase64,
+  );
+  expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledTimes(1);
+  await expect.element(screen.getByLabelText("Sent messages")).toHaveTextContent("[]");
+});
+
 it("keeps the red stop button as transcribe-without-sending", async () => {
   const fake = setup();
   using _recorder = stubGlobal("MediaRecorder", fake.Recorder);
@@ -148,22 +181,61 @@ it("keeps the red stop button as transcribe-without-sending", async () => {
   await expect.element(screen.getByLabelText("Sent messages")).toHaveTextContent("[]");
 });
 
-it("does not send a late transcript after switching chats", async () => {
-  const fake = setup();
-  using _recorder = stubGlobal("MediaRecorder", fake.Recorder);
-  using _microphone = vi
-    .spyOn(navigator.mediaDevices, "getUserMedia")
-    .mockResolvedValue(fake.stream as unknown as MediaStream);
-  await using screen = await render(<Composer />);
-  await screen.getByRole("button", { name: "Dictate", exact: true }).click();
-  await screen.getByRole("button", { name: "Submit message" }).click();
-  await vi.waitFor(() => expect(backend.transcribe).toHaveBeenCalledTimes(1));
-  await screen.rerender(<Composer ownerKey="test:other-thread" />);
-  fake.complete({ _tag: "Success", value: { text: "must not send" } });
-  await expect.element(screen.getByRole("button", { name: "Dictate", exact: true })).toBeEnabled();
-  await expect.element(screen.getByRole("textbox", { name: "Message" })).toHaveValue("");
-  await expect.element(screen.getByLabelText("Sent messages")).toHaveTextContent("[]");
-});
+it.each(["chat", "request"] as const)(
+  "does not send a late transcript after switching %s",
+  async (owner) => {
+    const fake = setup();
+    using _recorder = stubGlobal("MediaRecorder", fake.Recorder);
+    using _microphone = vi
+      .spyOn(navigator.mediaDevices, "getUserMedia")
+      .mockResolvedValue(fake.stream as unknown as MediaStream);
+    await using screen = await render(
+      <Composer ownerKey={composerVoiceOwnerKey("test", "thread", "first-request", "question")} />,
+    );
+    await screen.getByRole("button", { name: "Dictate", exact: true }).click();
+    await screen.getByRole("button", { name: "Submit message" }).click();
+    await vi.waitFor(() => expect(backend.transcribe).toHaveBeenCalledTimes(1));
+    await screen.rerender(
+      <Composer
+        ownerKey={composerVoiceOwnerKey(
+          "test",
+          owner === "chat" ? "other-thread" : "thread",
+          "next-request",
+          "question",
+        )}
+      />,
+    );
+    fake.complete({ _tag: "Success", value: { text: "must not send" } });
+    await expect
+      .element(screen.getByRole("button", { name: "Dictate", exact: true }))
+      .toBeEnabled();
+    await expect.element(screen.getByRole("textbox", { name: "Message" })).toHaveValue("");
+    await expect.element(screen.getByLabelText("Sent messages")).toHaveTextContent("[]");
+  },
+);
+
+it.each(["Stop dictating", "Submit message"])(
+  "does not upload or send oversized final audio via %s",
+  async (action) => {
+    const fake = setup(
+      new Blob([new Uint8Array(VOICE_AUDIO_MAX_BYTES + 1)], { type: "audio/webm" }),
+    );
+    using _recorder = stubGlobal("MediaRecorder", fake.Recorder);
+    using _microphone = vi
+      .spyOn(navigator.mediaDevices, "getUserMedia")
+      .mockResolvedValue(fake.stream as unknown as MediaStream);
+    await using screen = await render(<Composer />);
+    await screen.getByRole("button", { name: "Dictate", exact: true }).click();
+    await screen.getByRole("button", { name: action, exact: true }).click();
+    await expect
+      .element(screen.getByRole("alert"))
+      .toHaveTextContent("This recording is too large. Try a shorter recording.");
+    expect(backend.transcribe).not.toHaveBeenCalled();
+    expect(fake.track.stop).toHaveBeenCalledTimes(1);
+    await expect.element(screen.getByRole("textbox", { name: "Message" })).toHaveValue("");
+    await expect.element(screen.getByLabelText("Sent messages")).toHaveTextContent("[]");
+  },
+);
 
 it.each(["empty", "failure", "cancel"] as const)(
   "does not send when dictation ends with %s",
@@ -178,7 +250,7 @@ it.each(["empty", "failure", "cancel"] as const)(
     await screen.getByRole("button", { name: "Submit message" }).click();
     await vi.waitFor(() => expect(backend.transcribe).toHaveBeenCalledTimes(1));
     if (outcome === "cancel")
-      await screen.getByRole("button", { name: "Cancel", exact: true }).click();
+      await screen.getByRole("button", { name: "Cancel dictation", exact: true }).click();
     if (outcome === "failure") fake.fail(new Error("connection lost"));
     else
       fake.complete({
@@ -186,7 +258,12 @@ it.each(["empty", "failure", "cancel"] as const)(
         value: { text: outcome === "empty" ? " " : "cancelled text" },
       });
     await expect
-      .element(screen.getByRole("button", { name: "Dictate", exact: true }))
+      .element(
+        screen.getByRole("button", {
+          name: outcome === "failure" ? "Retry dictation" : "Dictate",
+          exact: true,
+        }),
+      )
       .toBeEnabled();
     await expect.element(screen.getByRole("textbox", { name: "Message" })).toHaveValue("");
     await expect.element(screen.getByLabelText("Sent messages")).toHaveTextContent("[]");

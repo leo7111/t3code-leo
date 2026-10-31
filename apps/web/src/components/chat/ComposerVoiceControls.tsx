@@ -26,7 +26,9 @@ export function ComposerVoiceControls(props: {
         ? "Transcribing…"
         : props.needsSetup
           ? "Set up dictation"
-          : "Dictate";
+          : props.state.errorAction === "retry-transcription"
+            ? "Retry dictation"
+            : "Dictate";
   return (
     <div className="flex shrink-0 items-center gap-1" data-composer-voice-controls>
       <Tooltip>
@@ -50,21 +52,21 @@ export function ComposerVoiceControls(props: {
         </TooltipTrigger>
         <TooltipPopup>{props.disabledReason ?? label}</TooltipPopup>
       </Tooltip>
-      {busy ? (
+      {busy || props.state.errorAction === "retry-transcription" ? (
         <Tooltip>
           <TooltipTrigger
             render={
               <Button
                 variant="ghost-muted"
                 size="icon"
-                aria-label="Cancel"
+                aria-label="Cancel dictation"
                 onClick={props.onCancel}
               />
             }
           >
             <XIcon aria-hidden="true" />
           </TooltipTrigger>
-          <TooltipPopup>Cancel</TooltipPopup>
+          <TooltipPopup>Cancel dictation</TooltipPopup>
         </Tooltip>
       ) : null}
     </div>

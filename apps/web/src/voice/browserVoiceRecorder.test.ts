@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vite-plus/test";
-import { VoiceInputController } from "@t3tools/client-runtime/voice-input";
+import {
+  VOICE_RECORDING_LIMIT_SECONDS,
+  VoiceInputController,
+} from "@t3tools/client-runtime/voice-input";
 import { BrowserVoiceRecorder } from "./browserVoiceRecorder";
+import { VOICE_AUDIO_MAX_BYTES } from "@t3tools/contracts";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -10,7 +14,13 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function setup(options: { permission?: Promise<MediaStream> } = {}) {
+function setup(
+  options: {
+    permission?: Promise<MediaStream>;
+    supportedMimeTypes?: readonly string[];
+    finalChunk?: Blob;
+  } = {},
+) {
   const track = Object.assign(new EventTarget(), { stop: vi.fn() });
   const stream = {
     getTracks: () => [track],
@@ -18,7 +28,8 @@ function setup(options: { permission?: Promise<MediaStream> } = {}) {
   } as unknown as MediaStream;
   const instances: FakeMediaRecorder[] = [];
   class FakeMediaRecorder extends EventTarget {
-    static isTypeSupported = () => true;
+    static isTypeSupported = (mimeType: string) =>
+      options.supportedMimeTypes?.includes(mimeType) ?? true;
     state: RecordingState = "inactive";
     start = vi.fn(() => {
       this.state = "recording";
@@ -28,7 +39,7 @@ function setup(options: { permission?: Promise<MediaStream> } = {}) {
       queueMicrotask(() => {
         this.dispatchEvent(
           Object.assign(new Event("dataavailable"), {
-            data: new Blob(["speech"], { type: "audio/webm" }),
+            data: options.finalChunk ?? new Blob(["speech"], { type: "audio/webm" }),
           }),
         );
         this.dispatchEvent(new Event("stop"));
@@ -47,6 +58,78 @@ function setup(options: { permission?: Promise<MediaStream> } = {}) {
 }
 
 describe("browser voice capture", () => {
+  it("rejects concurrent stops rather than uploading truncated oversized audio", async () => {
+    using harness = setup({ finalChunk: new Blob([new Uint8Array(VOICE_AUDIO_MAX_BYTES)]) });
+    const onStatus = vi.fn();
+    const recorder = new BrowserVoiceRecorder(onStatus);
+    await recorder.prepareToRecordAsync();
+    recorder.record({ forDuration: 300 });
+    harness.instances[0]!.dispatchEvent(
+      Object.assign(new Event("dataavailable"), {
+        data: new Blob(["earlier speech"]),
+      }),
+    );
+    const results = await Promise.allSettled([recorder.stop(), recorder.stop()]);
+    expect(results.map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    await expect(recorder.stop()).rejects.toThrow("Try a shorter recording");
+    expect(recorder.uri).toBeNull();
+    expect(harness.track.stop).toHaveBeenCalledTimes(1);
+    expect(onStatus).not.toHaveBeenCalledWith(expect.objectContaining({ isFinished: true }));
+    await expect(recorder.release()).resolves.toBeUndefined();
+  });
+
+  it.each(["audio/mp4", "audio/ogg;codecs=opus", "audio/webm"])(
+    "negotiates %s when the preferred codec is unavailable",
+    async (mimeType) => {
+      using _harness = setup({ supportedMimeTypes: [mimeType] });
+      const recorder = new BrowserVoiceRecorder(vi.fn());
+      await recorder.prepareToRecordAsync();
+      recorder.record({ forDuration: VOICE_RECORDING_LIMIT_SECONDS });
+      await recorder.stop();
+      try {
+        expect((await (await fetch(recorder.uri!)).blob()).type).toBe(mimeType);
+      } finally {
+        recorder.deleteRecording(recorder.uri!);
+        await recorder.release();
+      }
+    },
+  );
+
+  it("rejects unsupported codecs before asking for microphone access", async () => {
+    using harness = setup({ supportedMimeTypes: [] });
+    const recorder = new BrowserVoiceRecorder(vi.fn());
+    await expect(recorder.prepareToRecordAsync()).rejects.toThrow("supported audio format");
+    expect(harness.getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it("rejects insecure origins before asking for microphone access", async () => {
+    using harness = setup();
+    vi.stubGlobal("isSecureContext", false);
+    const recorder = new BrowserVoiceRecorder(vi.fn());
+    await expect(recorder.prepareToRecordAsync()).rejects.toThrow("HTTPS or localhost");
+    expect(harness.getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it("waits for final audio after the native recorder becomes inactive", async () => {
+    using harness = setup();
+    const recorder = new BrowserVoiceRecorder(vi.fn());
+    await recorder.prepareToRecordAsync();
+    recorder.record({ forDuration: 300 });
+    const native = harness.instances[0]!;
+    native.state = "inactive";
+    const releasing = recorder.release();
+    expect(harness.track.stop).not.toHaveBeenCalled();
+    native.dispatchEvent(
+      Object.assign(new Event("dataavailable"), {
+        data: new Blob(["last speech"], { type: "audio/webm" }),
+      }),
+    );
+    native.dispatchEvent(new Event("stop"));
+    await releasing;
+    expect(await (await fetch(recorder.uri!)).text()).toBe("last speech");
+    recorder.deleteRecording(recorder.uri!);
+  });
+
   it("automatically stops at the recording limit and releases microphone tracks", async () => {
     using h = setup();
     vi.useFakeTimers();
@@ -54,7 +137,7 @@ describe("browser voice capture", () => {
     const recorder = new BrowserVoiceRecorder(onStatus);
     try {
       await recorder.prepareToRecordAsync();
-      recorder.record({ forDuration: 300 });
+      recorder.record({ forDuration: VOICE_RECORDING_LIMIT_SECONDS });
       await vi.advanceTimersByTimeAsync(300_000);
       expect(h.instances[0]!.state).toBe("inactive");
       expect(h.track.stop).toHaveBeenCalledTimes(1);

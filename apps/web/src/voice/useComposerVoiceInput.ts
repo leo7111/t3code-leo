@@ -106,6 +106,7 @@ export function useComposerVoiceInput(options: {
       void controller.handleRecorderStatus(status);
     });
     const controller = new VoiceInputController({
+      retainRecordingOnFailure: true,
       recorder,
       getTranscriber: () => ({ prepare }),
       requestPermission: async () => ({ granted: true, canAskAgain: true }),

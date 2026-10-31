@@ -803,6 +803,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     id: "voice-transcription-api-key",
     title: "OpenAI API key",
     to: "/settings/browser",
+    targetId: "codex-voice-input-enabled",
     scope: "environment",
     searchTerms: ["voice dictation microphone speech audio API key OpenAI transcription"],
   },

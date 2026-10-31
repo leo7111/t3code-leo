@@ -558,6 +558,112 @@ describe("VoiceInputController", () => {
     expect(harness.deleted).toEqual(["file:///voice.m4a", "file:///reset-empty.m4a"]);
   });
 
+  it("retains failed audio for explicit retry without recording again", async () => {
+    const transcribe = vi
+      .fn<PreparedVoiceTranscription["transcribe"]>()
+      .mockRejectedValueOnce(
+        new VoiceTranscriptionError("transcription-failed", "Connection lost."),
+      )
+      .mockResolvedValue("recovered text");
+    const harness = createHarness({
+      retainRecordingOnFailure: true,
+      getTranscriber: () => ({ prepare: async () => preparedTranscription(transcribe) }),
+    });
+    await harness.controller.start();
+    await harness.controller.stop();
+    expect(harness.deleted).toEqual([]);
+    expect(harness.controller.currentState.errorAction).toBe("retry-transcription");
+    expect(transcribe).toHaveBeenCalledTimes(1);
+    await harness.controller.retryTranscription();
+    expect(harness.recorder.record).toHaveBeenCalledTimes(1);
+    expect(transcribe.mock.calls.map(([uri]) => uri)).toEqual([
+      "file:///voice.m4a",
+      "file:///voice.m4a",
+    ]);
+    expect(harness.commits.map((commit) => commit.text)).toEqual(["hello recovered text"]);
+    expect(harness.deleted).toEqual(["file:///voice.m4a"]);
+  });
+
+  it.each(["cancel", "dispose", "ownerChanged"] as const)(
+    "discards retained audio on %s and allows the next session",
+    async (action) => {
+      const harness = createHarness({
+        retainRecordingOnFailure: true,
+        getTranscriber: () => ({
+          prepare: async () =>
+            preparedTranscription(async () => {
+              throw new VoiceTranscriptionError("transcription-failed", "Connection lost.");
+            }),
+        }),
+      });
+      await harness.controller.start();
+      await harness.controller.stop();
+      expect(harness.deleted).toEqual([]);
+      harness.controller[action]();
+      const next = createHarness();
+      await next.controller.start();
+      expect(harness.deleted).toEqual(["file:///voice.m4a"]);
+      expect(next.controller.currentState.phase).toBe("recording");
+      await next.controller.stop();
+    },
+  );
+
+  it("preserves interrupted audio without uploading until retry", async () => {
+    const transcribe = vi.fn(async () => "recovered text");
+    const harness = createHarness({
+      retainRecordingOnFailure: true,
+      getTranscriber: () => ({ prepare: async () => preparedTranscription(transcribe) }),
+    });
+    await harness.controller.start();
+    await harness.controller.interruptRecording("Microphone disconnected.");
+    expect(harness.deleted).toEqual([]);
+    expect(transcribe).not.toHaveBeenCalled();
+    expect(harness.controller.currentState.errorAction).toBe("retry-transcription");
+    await harness.controller.retryTranscription();
+    expect(harness.commits.map((commit) => commit.text)).toEqual(["hello recovered text"]);
+  });
+
+  it("keeps the session lock when restarting immediately after discarding retained audio", async () => {
+    const transcribe = vi
+      .fn<PreparedVoiceTranscription["transcribe"]>()
+      .mockRejectedValueOnce(
+        new VoiceTranscriptionError("transcription-failed", "Connection lost."),
+      )
+      .mockResolvedValue("recovered text");
+    const harness = createHarness({
+      retainRecordingOnFailure: true,
+      getTranscriber: () => ({ prepare: async () => preparedTranscription(transcribe) }),
+    });
+    await harness.controller.start();
+    await harness.controller.stop();
+    harness.controller.cancel();
+    await harness.controller.start();
+    const other = createHarness();
+    await other.controller.start();
+    expect(other.controller.currentState.phase).toBe("error");
+    await harness.controller.stop();
+  });
+
+  it("does not upload retried audio into a changed draft", async () => {
+    const transcribe = vi
+      .fn<PreparedVoiceTranscription["transcribe"]>()
+      .mockRejectedValueOnce(
+        new VoiceTranscriptionError("transcription-failed", "Connection lost."),
+      )
+      .mockResolvedValue("recovered text");
+    const harness = createHarness({
+      retainRecordingOnFailure: true,
+      getTranscriber: () => ({ prepare: async () => preparedTranscription(transcribe) }),
+    });
+    await harness.controller.start();
+    await harness.controller.stop();
+    harness.setDraft(draft({ text: "new draft", revision: 2 }));
+    await harness.controller.retryTranscription();
+    expect(harness.commits).toEqual([]);
+    expect(transcribe).toHaveBeenCalledTimes(1);
+    expect(harness.deleted).toEqual(["file:///voice.m4a"]);
+  });
+
   it("cancels preparation when the app reaches the background", async () => {
     const preparation = deferred<PreparedVoiceTranscription>();
     const preparationEntered = deferred<AbortSignal>();

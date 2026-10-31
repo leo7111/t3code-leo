@@ -20,6 +20,12 @@ import {
   type SettingsSearchItem,
 } from "./settingsSearch";
 
+it("routes API key search to the always-visible dictation toggle", () => {
+  expect(
+    SETTINGS_SEARCH_ITEMS.find((item) => item.id === "voice-transcription-api-key")?.targetId,
+  ).toBe("codex-voice-input-enabled");
+});
+
 const ITEMS: ReadonlyArray<SettingsSearchItem> = [
   {
     id: "word-wrap",

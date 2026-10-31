@@ -13,7 +13,7 @@ export type VoiceInputPhase = "idle" | "preparing" | "recording" | "transcribing
 export type VoiceInputState = {
   readonly phase: VoiceInputPhase;
   readonly error: string | null;
-  readonly errorAction: "retry" | "settings" | null;
+  readonly errorAction: "retry" | "retry-transcription" | "settings" | null;
 };
 
 export function voiceInputBlocksSubmission(state: VoiceInputState): boolean {
@@ -44,6 +44,7 @@ export interface VoiceRecorder {
 }
 
 export type VoiceInputControllerDependencies = {
+  readonly retainRecordingOnFailure?: boolean;
   readonly recorder: VoiceRecorder;
   readonly getTranscriber: () => VoiceTranscriber | null;
   readonly requestPermission: () => Promise<{
@@ -211,6 +212,7 @@ export class VoiceInputController {
 
   async start(): Promise<void> {
     if (this.state.phase !== "idle" && this.state.phase !== "error") return;
+    if (this.state.errorAction === "retry-transcription") return this.retryTranscription();
     const initiatingDraft = this.dependencies.readDraft();
     if (!initiatingDraft) {
       this.setError("This draft is no longer available.", "retry");
@@ -304,11 +306,38 @@ export class VoiceInputController {
     return this.finishRecording(false, null, onCommitted);
   }
 
+  async retryTranscription(): Promise<void> {
+    if (
+      this.state.phase !== "error" ||
+      this.state.errorAction !== "retry-transcription" ||
+      this.finishing
+    )
+      return;
+    if (
+      !this.capturedDraft ||
+      resolveTranscriptCommit(this.capturedDraft, this.dependencies.readDraft(), "", "en").kind ===
+        "stale"
+    ) {
+      await this.releaseResources();
+      this.setError("The draft changed. The recording was discarded.", "retry");
+      return;
+    }
+    const session = acquireSession();
+    if (!session) {
+      this.setError("Another voice recording is already active.", "retry-transcription");
+      return;
+    }
+    this.sessionToken = session;
+    await this.finishRecording(true, this.recordingUri);
+  }
+
   cancel(): void {
     switch (this.state.phase) {
       case "idle":
         return;
       case "error":
+        this.invalidateOperation();
+        void this.releaseResources();
         this.setState(IDLE_STATE);
         return;
       case "preparing":
@@ -332,6 +361,9 @@ export class VoiceInputController {
     if (this.state.phase !== "recording") return;
     this.rememberRecordingUri(completedUri);
     this.recordingUri = completedUri ?? this.recordingUri;
+    if (this.dependencies.retainRecordingOnFailure) {
+      return this.finishRecording(completedUri !== null, completedUri, undefined, message);
+    }
     return this.discardRecording(message);
   }
 
@@ -366,6 +398,10 @@ export class VoiceInputController {
   }
 
   dispose(): void {
+    if (this.state.phase === "error") {
+      this.cancel();
+      return;
+    }
     if (this.state.phase === "recording") {
       this.discardRecording(null);
       return;
@@ -380,8 +416,13 @@ export class VoiceInputController {
     alreadyStopped: boolean,
     completedUri: string | null,
     onCommitted?: (text: string) => void,
+    interruption?: string,
   ): Promise<void> {
-    if (this.finishing || this.state.phase !== "recording") return;
+    if (
+      this.finishing ||
+      (this.state.phase !== "recording" && this.state.errorAction !== "retry-transcription")
+    )
+      return;
     this.finishing = true;
     const operationToken = this.operationToken;
     this.setState({ phase: "transcribing", error: null, errorAction: null });
@@ -406,6 +447,10 @@ export class VoiceInputController {
       const transcription = this.transcription;
       const signal = this.transcriptionAbortController.signal;
       const capturedDraft = this.capturedDraft;
+      if (interruption) {
+        this.setError(interruption, "retry-transcription");
+        return;
+      }
       let transcript: string;
       try {
         transcript = await runTranscriptionOperation(() =>
@@ -413,7 +458,10 @@ export class VoiceInputController {
         );
       } catch (error) {
         if (this.isCurrent(operationToken)) {
-          this.setError(transcriptionErrorMessage(error), "retry");
+          this.setError(
+            transcriptionErrorMessage(error),
+            this.dependencies.retainRecordingOnFailure ? "retry-transcription" : "retry",
+          );
         }
         return;
       }
@@ -440,13 +488,20 @@ export class VoiceInputController {
       this.dependencies.commitDraft(result.text, result.selection);
       this.setState(IDLE_STATE);
       onCommitted?.(result.text);
-    } catch {
+    } catch (error) {
       if (this.isCurrent(operationToken)) {
-        this.setError("Could not finish voice recording.", "retry");
+        this.setError(
+          error instanceof VoiceTranscriptionError
+            ? error.message
+            : "Could not finish voice recording.",
+          "retry",
+        );
       }
     } finally {
+      await this.releaseResources(
+        this.isCurrent(operationToken) && this.state.errorAction === "retry-transcription",
+      );
       this.finishing = false;
-      await this.releaseResources();
     }
   }
 
@@ -465,7 +520,14 @@ export class VoiceInputController {
     }
   }
 
-  private async releaseResources(): Promise<void> {
+  private async releaseResources(retainRecording = false): Promise<void> {
+    const sessionToken = this.sessionToken;
+    this.sessionToken = null;
+    if (retainRecording) {
+      await this.releaseAudioSession();
+      releaseSession(sessionToken);
+      return;
+    }
     this.rememberRecordingUri(this.recordingUri);
     try {
       this.rememberRecordingUri(this.dependencies.recorder.uri);
@@ -477,12 +539,11 @@ export class VoiceInputController {
       } catch {}
     }
     this.ownedRecordingUris.clear();
-    await this.releaseAudioSession();
-    releaseSession(this.sessionToken);
-    this.sessionToken = null;
     this.capturedDraft = null;
     this.transcription = null;
     this.transcriptionAbortController = null;
+    await this.releaseAudioSession();
+    releaseSession(sessionToken);
   }
 
   private rememberRecordingUri(uri: string | null): void {

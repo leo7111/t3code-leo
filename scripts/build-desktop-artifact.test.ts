@@ -30,6 +30,7 @@ import {
   parseWslRuntimeArchiveMembers,
   readWorkspaceConfig,
   createBuildConfig,
+  resolveDesktopPublishConfig,
   DESKTOP_FILE_EXCLUSIONS,
   InvalidMacPasskeyRpDomainError,
   InvalidMacPasskeyPublishableKeyError,
@@ -85,6 +86,7 @@ it("isolates Leo before boot even when launched from another T3 environment", ()
   for (const inherited of [
     {},
     { T3CODE_HOME: "C:/live/.t3", APPDATA: "C:/live/profile" },
+    { T3CODE_DISABLE_AUTO_UPDATE: "1" },
     {
       T3CODE_HOME: "C:/live",
       VITE_DEV_SERVER_URL: "http://localhost:5733",
@@ -110,7 +112,7 @@ it("isolates Leo before boot even when launched from another T3 environment", ()
           "com.leo7111.t3code.transcription.preview",
         );
         assert.equal(env.T3CODE_DESKTOP_DISPLAY_NAME, "T3 Code Leo");
-        assert.equal(env.T3CODE_DISABLE_AUTO_UPDATE, "1");
+        assert.equal(env.T3CODE_DISABLE_AUTO_UPDATE, inherited.T3CODE_DISABLE_AUTO_UPDATE);
         for (const key of [
           "VITE_DEV_SERVER_URL",
           "VITE_HTTP_URL",
@@ -126,6 +128,32 @@ it("isolates Leo before boot even when launched from another T3 environment", ()
     assert.equal(bootCalls, 1);
   }
 });
+
+it.effect("pins Leo releases to the fork and leaves preview builds without feeds", () =>
+  Effect.gen(function* () {
+    assert.deepStrictEqual(yield* resolveDesktopPublishConfig("0.1.3", false, undefined, true), [
+      { provider: "github", owner: "leo7111", repo: "t3code-leo", releaseType: "release" },
+    ]);
+    for (const version of [
+      "0.1.3-preview.20261031.1",
+      "0.1.3-pr.1.1",
+      "0.1.3-nightly.20261031.1",
+    ]) {
+      assert.isNull(yield* resolveDesktopPublishConfig(version, false, undefined, true));
+    }
+  }).pipe(
+    Effect.provide(
+      ConfigProvider.layer(
+        ConfigProvider.fromEnv({
+          env: {
+            GITHUB_REPOSITORY: "pingdotgg/t3code",
+            T3CODE_DESKTOP_UPDATE_REPOSITORY: "other/repository",
+          },
+        }),
+      ),
+    ),
+  ),
+);
 
 const makeLinuxCliArchiveFixture = Effect.fn("test.makeLinuxCliArchiveFixture")(function* (input: {
   readonly root: string;

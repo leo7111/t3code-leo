@@ -126,7 +126,10 @@ function EnvironmentVoiceSettings({ environmentId }: { environmentId: Environmen
               spellCheck={false}
               maxLength={4096}
               value={apiKey}
-              onValueChange={setApiKey}
+              onValueChange={(value) => {
+                setApiKey(value);
+                setFeedback(null);
+              }}
               disabled={disabled}
               placeholder={status.data?.configured ? "Replace key" : "API key"}
             />
