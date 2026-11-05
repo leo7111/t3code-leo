@@ -16,7 +16,7 @@ export function canShowCodexVoiceInput(provider: VoiceProvider | null): boolean 
     provider?.driver === "codex" &&
     provider.enabled &&
     provider.installed &&
-    provider.status === "ready" &&
+    (provider.status === "ready" || provider.status === "warning") &&
     provider.auth.status === "authenticated"
   );
 }

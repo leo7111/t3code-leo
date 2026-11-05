@@ -45,10 +45,10 @@ export class BrowserVoiceRecorder implements VoiceRecorder {
     this.recorder.addEventListener("dataavailable", ({ data }) => {
       this.bytes += data.size;
       if (this.bytes > VOICE_AUDIO_MAX_BYTES) {
-        this.recordingError ??= new VoiceTranscriptionError(
-          "transcription-failed",
-          "This recording is too large. Try a shorter recording.",
-        );
+        this.recordingError ??= new VoiceTranscriptionError({
+          code: "transcription-failed",
+          message: "This recording is too large. Try a shorter recording.",
+        });
         this.onStatus({
           isFinished: false,
           hasError: true,

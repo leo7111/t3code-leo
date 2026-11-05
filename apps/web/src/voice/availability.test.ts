@@ -45,14 +45,18 @@ describe("composer voice provider availability", () => {
     expect(canShowCodexVoiceInput({ ...ready, enabled: false })).toBe(false);
   });
 
-  it("hides voice input when Codex needs attention", () => {
-    expect(canShowCodexVoiceInput({ ...ready, status: "warning" })).toBe(false);
+  it("allows authenticated Codex while optional discovery reports a warning", () => {
+    expect(canShowCodexVoiceInput({ ...ready, status: "warning" })).toBe(true);
+    expect(canShowCodexVoiceInput({ ...ready, status: "warning", enabled: false })).toBe(false);
+    expect(canShowCodexVoiceInput({ ...ready, status: "warning", installed: false })).toBe(false);
+    expect(canShowCodexVoiceInput({ ...ready, status: "error" })).toBe(false);
   });
 
   it.each(["unauthenticated", "unknown"] as const)(
     "hides voice input when Codex authentication is %s",
     (status) => {
       expect(canShowCodexVoiceInput({ ...ready, auth: { status } })).toBe(false);
+      expect(canShowCodexVoiceInput({ ...ready, status: "warning", auth: { status } })).toBe(false);
     },
   );
 });

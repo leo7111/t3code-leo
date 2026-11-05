@@ -164,6 +164,21 @@ describe("VoiceInputController", () => {
     expect(unsupported.controller.currentState.error).toContain("not available");
     expect(unsupported.recorder.record).not.toHaveBeenCalled();
 
+    const reason = new VoiceTranscriptionError({
+      code: "unavailable",
+      message: "This device requires iOS 26 or later.",
+    });
+    const unavailable = createHarness({
+      getTranscriber: () => ({
+        prepare: async () => {
+          throw reason;
+        },
+      }),
+    });
+    await unavailable.controller.start();
+    expect(unavailable.controller.currentState.error).toBe(reason.message);
+    expect(unavailable.recorder.record).not.toHaveBeenCalled();
+
     const denied = createHarness({
       requestPermission: async () => ({ granted: false, canAskAgain: false }),
     });
@@ -562,7 +577,7 @@ describe("VoiceInputController", () => {
     const transcribe = vi
       .fn<PreparedVoiceTranscription["transcribe"]>()
       .mockRejectedValueOnce(
-        new VoiceTranscriptionError("transcription-failed", "Connection lost."),
+        new VoiceTranscriptionError({ code: "transcription-failed", message: "Connection lost." }),
       )
       .mockResolvedValue("recovered text");
     const harness = createHarness({
@@ -592,7 +607,10 @@ describe("VoiceInputController", () => {
         getTranscriber: () => ({
           prepare: async () =>
             preparedTranscription(async () => {
-              throw new VoiceTranscriptionError("transcription-failed", "Connection lost.");
+              throw new VoiceTranscriptionError({
+                code: "transcription-failed",
+                message: "Connection lost.",
+              });
             }),
         }),
       });
@@ -627,7 +645,7 @@ describe("VoiceInputController", () => {
     const transcribe = vi
       .fn<PreparedVoiceTranscription["transcribe"]>()
       .mockRejectedValueOnce(
-        new VoiceTranscriptionError("transcription-failed", "Connection lost."),
+        new VoiceTranscriptionError({ code: "transcription-failed", message: "Connection lost." }),
       )
       .mockResolvedValue("recovered text");
     const harness = createHarness({
@@ -648,7 +666,7 @@ describe("VoiceInputController", () => {
     const transcribe = vi
       .fn<PreparedVoiceTranscription["transcribe"]>()
       .mockRejectedValueOnce(
-        new VoiceTranscriptionError("transcription-failed", "Connection lost."),
+        new VoiceTranscriptionError({ code: "transcription-failed", message: "Connection lost." }),
       )
       .mockResolvedValue("recovered text");
     const harness = createHarness({
@@ -692,10 +710,10 @@ it("preserves an actionable transcription error while leaving the draft unchange
     getTranscriber: () => ({
       prepare: async () =>
         preparedTranscription(async () => {
-          throw new VoiceTranscriptionError(
-            "transcription-failed",
-            "Check API billing, then try again.",
-          );
+          throw new VoiceTranscriptionError({
+            code: "transcription-failed",
+            message: "Check API billing, then try again.",
+          });
         }),
     }),
   });

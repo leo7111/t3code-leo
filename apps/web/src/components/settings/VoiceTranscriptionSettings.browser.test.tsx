@@ -42,15 +42,19 @@ vi.mock("./settingsLayout", () => ({
   ),
 }));
 
-it.each(["success", "failure"] as const)(
+it.each(["success", "failure", "unexpected error"] as const)(
   "clears stale %s feedback when the API key changes",
   async (outcome) => {
     backend.configure.mockReset();
-    backend.configure.mockResolvedValue(
-      outcome === "success"
-        ? { _tag: "Success", value: {} }
-        : { _tag: "Failure", cause: Cause.fail(new Error("connection lost")) },
-    );
+    if (outcome === "unexpected error") {
+      backend.configure.mockRejectedValue(new Error("private backend detail"));
+    } else {
+      backend.configure.mockResolvedValue(
+        outcome === "success"
+          ? { _tag: "Success", value: {} }
+          : { _tag: "Failure", cause: Cause.fail(new Error("connection lost")) },
+      );
+    }
     await using screen = await render(<VoiceTranscriptionSettings />);
     const input = screen.getByLabelText("API key", { exact: true });
     await input.fill("first-test-key");
@@ -59,6 +63,10 @@ it.each(["success", "failure"] as const)(
     await expect
       .element(feedback)
       .toHaveTextContent(outcome === "success" ? "Saved." : "Could not save. Try again.");
+    if (outcome !== "success") {
+      await expect.element(screen.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+      expect(screen.container.textContent).not.toContain("private backend detail");
+    }
     await input.click();
     await userEvent.keyboard("x");
     await expect.element(feedback).not.toBeInTheDocument();

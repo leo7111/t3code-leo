@@ -66,7 +66,13 @@ function setup(finalChunk?: Blob) {
   return { Recorder, stream, track, complete, fail };
 }
 
-function Composer({ ownerKey = "test:thread" }: { ownerKey?: string }) {
+function Composer({
+  ownerKey = "test:thread",
+  providerStatus = "ready",
+}: {
+  ownerKey?: string;
+  providerStatus?: "ready" | "warning";
+}) {
   const [text, setText] = useState("");
   const textRef = useRef(text);
   const [sent, setSent] = useState<string[]>([]);
@@ -86,7 +92,7 @@ function Composer({ ownerKey = "test:thread" }: { ownerKey?: string }) {
       driver: "codex",
       enabled: true,
       installed: true,
-      status: "ready",
+      status: providerStatus,
       auth: { status: "authenticated" },
     } as ServerProvider,
     readDraft: () => ({ ownerKey, text: textRef.current, selection: { start: 0, end: 0 } }),
@@ -116,27 +122,34 @@ function Composer({ ownerKey = "test:thread" }: { ownerKey?: string }) {
   );
 }
 
-it("dictates, transcribes, and sends the committed React draft exactly once", async () => {
-  const fake = setup();
-  using _recorder = stubGlobal("MediaRecorder", fake.Recorder);
-  using _microphone = vi
-    .spyOn(navigator.mediaDevices, "getUserMedia")
-    .mockResolvedValue(fake.stream as unknown as MediaStream);
-  await using screen = await render(<Composer />);
-  await screen.getByRole("button", { name: "Dictate", exact: true }).hover();
-  await expect.element(page.getByText("Dictate", { exact: true })).toBeVisible();
-  await screen.getByRole("button", { name: "Dictate", exact: true }).click();
-  await expect.element(screen.getByRole("button", { name: "Stop dictating" })).toBeEnabled();
-  const submit = screen.getByRole("button", { name: "Submit message" });
-  await expect.element(submit).toBeEnabled();
-  await submit.click();
-  await expect.element(submit).toBeDisabled();
-  await vi.waitFor(() => expect(backend.transcribe).toHaveBeenCalledTimes(1));
-  expect(fake.track.stop).toHaveBeenCalled();
-  fake.complete({ _tag: "Success", value: { text: "hello world" } });
-  await expect.element(screen.getByRole("textbox", { name: "Message" })).toHaveValue("hello world");
-  await expect.element(screen.getByLabelText("Sent messages")).toHaveTextContent('["hello world"]');
-});
+it.each(["ready", "warning"] as const)(
+  "dictates, transcribes, and sends the committed React draft exactly once with %s provider status",
+  async (providerStatus) => {
+    const fake = setup();
+    using _recorder = stubGlobal("MediaRecorder", fake.Recorder);
+    using _microphone = vi
+      .spyOn(navigator.mediaDevices, "getUserMedia")
+      .mockResolvedValue(fake.stream as unknown as MediaStream);
+    await using screen = await render(<Composer providerStatus={providerStatus} />);
+    await screen.getByRole("button", { name: "Dictate", exact: true }).hover();
+    await expect.element(page.getByText("Dictate", { exact: true })).toBeVisible();
+    await screen.getByRole("button", { name: "Dictate", exact: true }).click();
+    await expect.element(screen.getByRole("button", { name: "Stop dictating" })).toBeEnabled();
+    const submit = screen.getByRole("button", { name: "Submit message" });
+    await expect.element(submit).toBeEnabled();
+    await submit.click();
+    await expect.element(submit).toBeDisabled();
+    await vi.waitFor(() => expect(backend.transcribe).toHaveBeenCalledTimes(1));
+    expect(fake.track.stop).toHaveBeenCalled();
+    fake.complete({ _tag: "Success", value: { text: "hello world" } });
+    await expect
+      .element(screen.getByRole("textbox", { name: "Message" }))
+      .toHaveValue("hello world");
+    await expect
+      .element(screen.getByLabelText("Sent messages"))
+      .toHaveTextContent('["hello world"]');
+  },
+);
 
 it("retries the same audio after a failed send without submitting the message", async () => {
   const fake = setup();

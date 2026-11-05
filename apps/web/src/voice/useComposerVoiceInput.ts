@@ -76,13 +76,16 @@ export function useComposerVoiceInput(options: {
   const commitDraft = useStableCallback(options.commitDraft);
   const prepare = useStableCallback(async ({ signal }: VoiceTranscriptionOptions) => {
     if (signal.aborted)
-      throw new VoiceTranscriptionError("cancelled", "Voice input was cancelled.");
+      throw new VoiceTranscriptionError({
+        code: "cancelled",
+        message: "Voice input was cancelled.",
+      });
     const environmentId = options.environmentId;
     if (!available || !canTranscribe || !status.data?.configured)
-      throw new VoiceTranscriptionError(
-        "unavailable",
-        "Add an OpenAI API key in Settings → Browser → Voice input.",
-      );
+      throw new VoiceTranscriptionError({
+        code: "unavailable",
+        message: "Add an OpenAI API key in Settings → Browser → Voice input.",
+      });
     return {
       locale: navigator.language || "en-US",
       transcribe: async (uri: string, { signal }: VoiceTranscriptionOptions) => {
@@ -90,12 +93,12 @@ export function useComposerVoiceInput(options: {
         const result = await transcribe({ environmentId, input: { ...audio, signal } });
         if (result._tag === "Failure") {
           const failure = squashAtomCommandFailure(result);
-          throw new VoiceTranscriptionError(
-            "transcription-failed",
-            isApiTranscriptionError(failure)
+          throw new VoiceTranscriptionError({
+            code: "transcription-failed",
+            message: isApiTranscriptionError(failure)
               ? new ApiTranscriptionError({ reason: failure.reason }).message
               : "Could not transcribe the recording. Check the connection and try again.",
-          );
+          });
         }
         return result.value.text;
       },

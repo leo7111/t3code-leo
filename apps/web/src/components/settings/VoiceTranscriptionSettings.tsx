@@ -63,10 +63,11 @@ function EnvironmentVoiceSettings({ environmentId }: { environmentId: Environmen
           text: remove ? "Key removed." : "Saved.",
         });
       }
-    } finally {
-      pending.current = false;
-      setSaving(false);
+    } catch {
+      setFeedback({ error: true, text: "Could not save. Try again." });
     }
+    pending.current = false;
+    setSaving(false);
   };
   const availability = !supported
     ? "Update T3 to use dictation."

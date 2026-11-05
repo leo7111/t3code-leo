@@ -10,6 +10,7 @@ describe("parseFileUrlHref", () => {
     ],
     ["file://server/share/workspace-image.svg", "\\\\server\\share\\workspace-image.svg", ""],
     ["file://localhost/home/me/notes.md", "/home/me/notes.md", ""],
+    [" FILE:///D:/notes.md", "D:/notes.md", ""],
   ])("parses %s", (href, path, hash) => {
     expect(parseFileUrlHref(href)).toEqual({ path, hash });
   });
@@ -21,7 +22,15 @@ describe("parseFileUrlHref", () => {
     expect(parseFileUrlHref("file:///c%3A/Users/x/shot.png")?.path).toBe("/c%3A/Users/x/shot.png");
   });
 
-  it.each(["https://example.com/a.ts", "file://%", "/Users/julius/a.ts"])("rejects %s", (href) => {
+  it.each([
+    "https://example.com/a.ts",
+    "file://%",
+    "/Users/julius/a.ts",
+    "d:alert(1)",
+    "D:/notes.md",
+    String.raw`D:\notes.md`,
+    "javascript:alert(1)",
+  ])("rejects %s", (href) => {
     expect(parseFileUrlHref(href)).toBeNull();
   });
 });
