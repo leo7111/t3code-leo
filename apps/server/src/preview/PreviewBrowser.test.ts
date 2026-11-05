@@ -12,6 +12,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import { HttpClient, HttpClientResponse } from "effect/http";
 import * as NodeZlib from "node:zlib";
 
@@ -126,6 +127,7 @@ const makeHarness = Effect.fn("test.makePreviewBrowser")(function* (
 it.layer(Layer.mergeAll(NodeServices.layer, NodeCrypto.layer))("PreviewBrowser", (it) => {
   it.effect.each(["0.8.0", "1.2.3"])("retains another version when installing %s", (current) =>
     Effect.gen(function* () {
+      yield* TestClock.setTime(Date.UTC(2026, 0, 1));
       const { browser, fs, path, installRoot, requests } = yield* makeHarness({ version: current });
       yield* fs.makeDirectory(path.join(installRoot, "0.9.0"), { recursive: true });
       yield* fs.makeDirectory(path.join(installRoot, "0.10.0"));

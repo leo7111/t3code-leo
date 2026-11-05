@@ -199,7 +199,7 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const root = yield* fs.makeTempDirectoryScoped();
-      const prefix = path.join(root, "bunx-tools");
+      const prefix = path.join(root, "bunx-tools").replaceAll("\\", "/");
       const packageRoot = path.join(prefix, "lib/node_modules/t3");
       const entry = path.join(packageRoot, "dist/bin.mjs");
       const globalBin = path.join(prefix, "bin/t3");
@@ -214,6 +214,12 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
         Effect.provideService(HostProcess.Arguments, ["node", entry]),
         Effect.provideService(HostProcess.IsExecutable, false),
         Effect.provideService(HostProcess.Platform, "linux"),
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          realPath: (path) =>
+            fs.realPath(path).pipe(Effect.map((resolved) => resolved.replaceAll("\\", "/"))),
+        }),
+        Effect.provide(Path.layer),
       );
       expect(yield* resolve).toBeNull();
       yield* fs.symlink(entry, globalBin);
@@ -230,7 +236,7 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
       const fs = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
       const root = yield* fs.makeTempDirectoryScoped();
-      const prefix = path.join(root, "bunx-tools");
+      const prefix = path.join(root, "bunx-tools").replaceAll("\\", "/");
       const packageRoot = path.join(prefix, "lib/node_modules/t3");
       const launcher = path.join(packageRoot, "bin/t3.mjs");
       const executable = path.join(root, ".t3/runtime/versions/1.0.0/t3");
@@ -245,7 +251,15 @@ it.layer(NodeServices.layer)("manual server installation ownership", (it) => {
         Effect.provideService(HostProcess.Arguments, [executable, executable]),
         Effect.provideService(HostProcess.IsExecutable, true),
         Effect.provideService(HostProcess.Platform, "linux"),
-        Effect.provideService(HostProcess.Environment, { T3CODE_NPM_LAUNCHER_PATH: launcher }),
+        Effect.provideService(HostProcess.Environment, {
+          T3CODE_NPM_LAUNCHER_PATH: launcher.replaceAll("\\", "/"),
+        }),
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          realPath: (path) =>
+            fs.realPath(path).pipe(Effect.map((resolved) => resolved.replaceAll("\\", "/"))),
+        }),
+        Effect.provide(Path.layer),
       );
       for (const [version, expected] of [
         ["0.0.1", null],

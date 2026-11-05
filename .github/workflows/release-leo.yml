@@ -7,6 +7,11 @@ on:
         description: Stable Leo version (for example 0.1.3)
         required: true
         type: string
+      checks_only:
+        description: Run verification without building or changing releases
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -35,10 +40,109 @@ jobs:
         run: vp test run scripts/build-desktop-artifact.test.ts scripts/verify-leo-release.test.ts apps/desktop/src/updates/DesktopUpdates.test.ts apps/desktop/src/updates/updateMachine.test.ts
       - name: Test dictation lifecycle and recovery
         run: vp test run packages/client-runtime/src/voice-input/controller.test.ts apps/web/src/voice/availability.test.ts apps/web/src/voice/browserVoiceRecorder.test.ts apps/web/src/voice/useComposerVoiceInput.browser.test.tsx apps/web/src/components/settings/settingsSearch.test.ts apps/web/src/components/settings/VoiceTranscriptionSettings.browser.test.tsx
+      - name: Exercise release-only workflow steps
+        run: node scripts/release-smoke.ts
+
+  regressions:
+    if: github.repository == 'leo7111/t3code-leo'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: packages
+            project: root
+            shard: 1/1
+          - suite: clients
+            project: "@t3tools/client-runtime|@t3tools/mobile*"
+            shard: 1/1
+          - suite: desktop
+            project: "@t3tools/desktop"
+            shard: 1/1
+          - suite: web
+            project: "@t3tools/web*"
+            shard: 1/1
+          - suite: server-1
+            project: t3
+            shard: 1/4
+          - suite: server-2
+            project: t3
+            shard: 2/4
+          - suite: server-3
+            project: t3
+            shard: 3/4
+          - suite: server-4
+            project: t3
+            shard: 4/4
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-ci-deps
+      - name: Install browser dependencies
+        run: node apps/web/node_modules/playwright/cli.js install --with-deps --only-shell chromium
+      - name: Install desktop fixture dependencies
+        if: matrix.suite == 'desktop'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsecret-1-dev pkg-config
+          vp run --filter @t3tools/desktop ensure:electron
+      - name: Test full regression suite
+        env:
+          TEST_PROJECTS: ${{ matrix.project }}
+          TEST_SHARD: ${{ matrix.shard }}
+          TEST_REPORT: ${{ runner.temp }}/leo-${{ matrix.suite }}.json
+        shell: bash
+        run: |
+          IFS='|' read -ra projects <<< "$TEST_PROJECTS"
+          selectors=()
+          for project in "${projects[@]}"; do selectors+=(--project "$project"); done
+          if [[ "$TEST_PROJECTS" == root ]]; then selectors+=(--exclude '.github/scripts/*.test.cjs'); fi
+          vp test run "${selectors[@]}" --shard "$TEST_SHARD" --maxWorkers=2 --reporter=default --reporter=json --outputFile.json="$TEST_REPORT"
+      - name: Test workflow helpers
+        if: always() && matrix.suite == 'packages'
+        run: node --test .github/scripts/*.test.cjs
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: leo-regressions-${{ matrix.suite }}
+          path: ${{ runner.temp }}/leo-${{ matrix.suite }}.json
+          if-no-files-found: error
+
+  rust-regressions:
+    if: github.repository == 'leo7111/t3code-leo'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: stable
+          components: rustfmt
+      - name: Check and test native crates
+        shell: bash
+        run: |
+          for crate in resource-monitor kde-snap-shot hyprland-snap-shot; do
+            cargo fmt --manifest-path "native/$crate/Cargo.toml" -- --check
+            cargo test --locked --manifest-path "native/$crate/Cargo.toml"
+          done
 
   build:
-    needs: checks
-    if: github.repository == 'leo7111/t3code-leo'
+    needs: [checks, regressions, rust-regressions]
+    if: github.repository == 'leo7111/t3code-leo' && !inputs.checks_only
     runs-on: windows-2025
     env:
       LEO_VERSION: ${{ inputs.version }}

@@ -67,9 +67,9 @@ const normalize = (target: string) => {
   }
   return `/${parts.join("/")}`;
 };
-const layerWorktreeLocation = (worktreesDir = managedWorktreesDir) =>
+const layerWorktreeLocation = (worktreesDir = managedWorktreesDir, pathLayer = Path.layer) =>
   Layer.mergeAll(
-    Path.layer,
+    pathLayer,
     Layer.mock(ServerConfig.ServerConfig)({ worktreesDir } as ServerConfig.ServerConfig["Service"]),
     ServerSettings.layerTest(),
   );
@@ -273,7 +273,10 @@ function makeLocalCommandHarness(input: {
   readonly worktreesDir?: string;
   readonly workspaceRoot?: string;
   readonly gitWorkflow?: GitWorkflow.GitWorkflowService["Service"];
-  readonly fileSystem?: FileSystem.FileSystem;
+  readonly platform?: {
+    readonly fileSystem: FileSystem.FileSystem;
+    readonly path: Path.Path;
+  };
   readonly previousNativeSession?: boolean;
   readonly previousMessages?: ReadonlyArray<string>;
   readonly logoutFailure?: string;
@@ -940,10 +943,13 @@ function makeLocalCommandHarness(input: {
             }),
         }),
         IdAllocator.layer,
-        layerWorktreeLocation(input.worktreesDir),
-        input.fileSystem === undefined
+        layerWorktreeLocation(
+          input.worktreesDir,
+          input.platform === undefined ? Path.layer : Layer.succeed(Path.Path, input.platform.path),
+        ),
+        input.platform === undefined
           ? FileSystem.layerNoop({ exists: () => Effect.succeed(true) })
-          : Layer.succeed(FileSystem.FileSystem, input.fileSystem),
+          : Layer.succeed(FileSystem.FileSystem, input.platform.fileSystem),
         input.gitWorkflow === undefined
           ? Layer.mock(GitWorkflow.GitWorkflowService)({
               pruneWorktrees: () => Effect.void,
@@ -1135,7 +1141,7 @@ effectIt.effect(
           workspaceRoot,
           worktreePath,
           worktreesDir,
-          fileSystem,
+          platform: { fileSystem, path },
           gitWorkflow,
           failReadsAfterRunning: true,
         });
@@ -1189,7 +1195,7 @@ effectIt.effect(
         text: "Continue",
         worktreesDir,
         worktreePath,
-        fileSystem,
+        platform: { fileSystem, path },
         failReadsAfterRunning: true,
       });
       harness.createWorktree.mockImplementationOnce(() => Effect.interrupt);
@@ -1425,7 +1431,7 @@ effectIt.effect.each(["cleanup-first", "startup-first"])(
         text: "Continue",
         worktreePath,
         worktreesDir: workspaceRoot,
-        fileSystem,
+        platform: { fileSystem, path },
         failReadsAfterRunning: true,
       });
       harness.createWorktree.mockImplementation(() =>

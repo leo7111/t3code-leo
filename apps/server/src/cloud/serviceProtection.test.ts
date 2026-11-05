@@ -253,7 +253,7 @@ it.effect("counts memory.min as protection and names the first cgroup that grant
       Effect.provideService(FileSystem.FileSystem, {
         ...fs,
         readFileString: (path, encoding) =>
-          fs.readFileString(path.replace("/sys/fs/cgroup", root), encoding),
+          fs.readFileString(path.replaceAll("\\", "/").replace("/sys/fs/cgroup", root), encoding),
       }),
     );
     expect((yield* read)?.unprotected).toBe("app.slice");

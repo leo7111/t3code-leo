@@ -109,9 +109,16 @@ const withFakeSystemd = <A, E>(
       Effect.provideService(FileSystem.FileSystem, {
         ...fileSystem,
         readFileString: (path, encoding) =>
-          fileSystem.readFileString(path.replace("/sys/fs/cgroup", cgroupRoot), encoding),
+          fileSystem.readFileString(
+            path.replaceAll("\\", "/").replace("/sys/fs/cgroup", cgroupRoot),
+            encoding,
+          ),
         writeFileString: (path, data, options) =>
-          fileSystem.writeFileString(path.replace("/sys/fs/cgroup", cgroupRoot), data, options),
+          fileSystem.writeFileString(
+            path.replaceAll("\\", "/").replace("/sys/fs/cgroup", cgroupRoot),
+            data,
+            options,
+          ),
       }),
     );
     const { stateDir } = yield* ServerConfig.ServerConfig;

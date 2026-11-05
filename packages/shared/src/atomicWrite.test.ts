@@ -114,11 +114,12 @@ it.layer(NodeServices.layer)("writeFileStringAtomically", (it) => {
       yield* fs.makeDirectory(home, { recursive: true });
       yield* fs.symlink(linkedState, path.join(home, "state"));
       yield* fs.writeFileString(destination, "before");
-      yield* fs.symlink("../config/settings.json", link);
+      const relativeDestination = path.join("..", "config", "settings.json");
+      yield* fs.symlink(relativeDestination, link);
 
       yield* writeFileStringAtomically({ filePath: link, contents: "after" });
 
-      assert.strictEqual(yield* fs.readLink(link), "../config/settings.json");
+      assert.strictEqual(yield* fs.readLink(link), relativeDestination);
       assert.strictEqual(yield* fs.readFileString(destination), "after");
     }),
   );
