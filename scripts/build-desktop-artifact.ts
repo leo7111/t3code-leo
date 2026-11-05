@@ -30,6 +30,7 @@ import {
   updateReleasePackageVersions,
 } from "./update-release-package-versions.ts";
 import { applyWebBrandAssets } from "./apply-web-brand-assets.ts";
+import { vitePlusCommand } from "./check-changed-command.ts";
 import {
   BRAND_ASSET_PATHS,
   resolveWebAssetBrandForChannel,
@@ -1840,7 +1841,10 @@ const buildDesktopBundlesUnlocked = Effect.fn("buildDesktopBundlesUnlocked")(fun
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
-  const spawnCommand = yield* resolveSpawnCommand("vp", ["run", "build:desktop"]);
+  const [buildCommand, buildArgs] = vitePlusCommand(
+    ["run", "build:desktop"],
+    yield* HostProcess.Platform,
+  );
   yield* Effect.acquireUseRelease(
     Effect.forEach(releasePackageFiles, (relativePath) =>
       Effect.gen(function* () {
@@ -1859,9 +1863,9 @@ const buildDesktopBundlesUnlocked = Effect.fn("buildDesktopBundlesUnlocked")(fun
         yield* updateReleasePackageVersions(appVersion, { rootDir: repoRoot });
         // The compiler must stop reading the aligned manifests before restoration.
         yield* runCommand(
-          ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+          ChildProcess.make(buildCommand, buildArgs, {
             cwd: repoRoot,
-            shell: spawnCommand.shell,
+            shell: false,
             env: { APP_VERSION: appVersion },
             extendEnv: true,
           }),
@@ -3167,11 +3171,14 @@ export const stageWindowsServerSidecar = Effect.fn("stageWindowsServerSidecar")(
   }
 
   yield* Effect.log("[desktop-artifact] Installing server sidecar runtime externals...");
-  const installCommand = yield* resolveSpawnCommand("vp", [...STAGE_INSTALL_ARGS]);
+  const [installCommand, installArgs] = vitePlusCommand(
+    STAGE_INSTALL_ARGS,
+    yield* HostProcess.Platform,
+  );
   yield* runCommand(
-    ChildProcess.make(installCommand.command, installCommand.args, {
+    ChildProcess.make(installCommand, installArgs, {
       cwd: serverStageDir,
-      shell: installCommand.shell,
+      shell: false,
     }),
     { label: "vp install --prod (server sidecar)", verbose: input.verbose },
   );
@@ -3954,11 +3961,14 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
   }
 
   yield* Effect.log("[desktop-artifact] Installing staged production dependencies...");
-  const installCommand = yield* resolveSpawnCommand("vp", [...STAGE_INSTALL_ARGS]);
+  const [installCommand, installArgs] = vitePlusCommand(
+    STAGE_INSTALL_ARGS,
+    yield* HostProcess.Platform,
+  );
   yield* runCommand(
-    ChildProcess.make(installCommand.command, installCommand.args, {
+    ChildProcess.make(installCommand, installArgs, {
       cwd: stageAppDir,
-      shell: installCommand.shell,
+      shell: false,
     }),
     { label: "vp install --prod", verbose: options.verbose },
   );
@@ -4063,12 +4073,15 @@ const buildDesktopArtifactUnlocked = Effect.fn("buildDesktopArtifactUnlocked")(f
     "--publish",
     "never",
   ];
-  const builderCommand = yield* resolveSpawnCommand("vp", builderArgs, { env: buildEnv });
+  const [builderCommand, resolvedBuilderArgs] = vitePlusCommand(
+    builderArgs,
+    yield* HostProcess.Platform,
+  );
   yield* runCommand(
-    ChildProcess.make(builderCommand.command, builderCommand.args, {
+    ChildProcess.make(builderCommand, resolvedBuilderArgs, {
       cwd: repoRoot,
       env: buildEnv,
-      shell: builderCommand.shell,
+      shell: false,
     }),
     {
       label: `vp exec --filter @t3tools/desktop -- electron-builder --projectDir ${stageAppDir} ${platformConfig.cliFlag} --${options.arch} --publish never`,
