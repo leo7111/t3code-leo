@@ -144,19 +144,14 @@ export function useComposerVoiceInput(options: {
   }, [session, options.ownerKey, options.environmentId, available]);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Release the microphone and pending transcription when the composer unmounts.
   useEffect(() => () => session.controller.dispose(), [session]);
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Keep the recorder in step with browser visibility and remove its listeners on unmount.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- Release recording on page unload; switching apps must keep dictation active.
   useEffect(() => {
     const hide = () => {
-      void session.controller.appMovedToBackground();
-    };
-    const visibilityChanged = () => {
-      if (document.visibilityState === "hidden") hide();
+      session.controller.cancel();
     };
     window.addEventListener("pagehide", hide);
-    document.addEventListener("visibilitychange", visibilityChanged);
     return () => {
       window.removeEventListener("pagehide", hide);
-      document.removeEventListener("visibilitychange", visibilityChanged);
     };
   }, [session]);
   const microphoneSupported =

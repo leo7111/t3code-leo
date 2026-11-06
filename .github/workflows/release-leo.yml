@@ -194,6 +194,11 @@ jobs:
         run: |
           vp test run scripts/build-desktop-artifact.test.ts -t Leo
           vp test run scripts/verify-leo-release.test.ts apps/desktop/src/updates/updateMachine.test.ts
+      - name: Install Chromium for Windows dictation regression tests
+        run: node apps/web/node_modules/playwright/cli.js install --only-shell chromium
+      - name: Verify Windows dictation lifecycle before packaging
+        shell: pwsh
+        run: node_modules/.bin/vp.cmd test run packages/client-runtime/src/voice-input/controller.test.ts apps/web/src/voice/browserVoiceRecorder.test.ts apps/web/src/voice/useComposerVoiceInput.browser.test.tsx
       - name: Build Windows x64 installer
         shell: pwsh
         run: node scripts/build-leo-desktop.mjs --build-version "$env:LEO_VERSION"

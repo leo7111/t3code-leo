@@ -151,6 +151,77 @@ it.each(["ready", "warning"] as const)(
   },
 );
 
+it("keeps dictating when the window loses focus or the page becomes hidden", async () => {
+  const fake = setup();
+  using _recorder = stubGlobal("MediaRecorder", fake.Recorder);
+  using _microphone = vi
+    .spyOn(navigator.mediaDevices, "getUserMedia")
+    .mockResolvedValue(fake.stream as unknown as MediaStream);
+  await using screen = await render(<Composer />);
+  await screen.getByRole("button", { name: "Dictate", exact: true }).click();
+  await expect.element(screen.getByRole("button", { name: "Stop dictating" })).toBeEnabled();
+  using visibility = vi.spyOn(document, "visibilityState", "get");
+  for (const state of ["hidden", "visible", "hidden", "visible"] as const) {
+    visibility.mockReturnValue(state);
+    window.dispatchEvent(new Event(state === "hidden" ? "blur" : "focus"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    await expect.element(screen.getByRole("button", { name: "Stop dictating" })).toBeEnabled();
+    expect(fake.track.stop).not.toHaveBeenCalled();
+    expect(backend.transcribe).not.toHaveBeenCalled();
+  }
+  await screen.getByRole("button", { name: "Stop dictating" }).click();
+  await vi.waitFor(() => expect(backend.transcribe).toHaveBeenCalledTimes(1));
+  fake.complete({ _tag: "Success", value: { text: "background speech" } });
+  await expect
+    .element(screen.getByRole("textbox", { name: "Message" }))
+    .toHaveValue("background speech");
+  await expect.element(screen.getByLabelText("Sent messages")).toHaveTextContent("[]");
+});
+
+it("keeps preparing dictation when switching apps before microphone permission resolves", async () => {
+  const fake = setup();
+  let grantMicrophone!: (stream: MediaStream) => void;
+  const permission = new Promise<MediaStream>((resolve) => {
+    grantMicrophone = resolve;
+  });
+  using _recorder = stubGlobal("MediaRecorder", fake.Recorder);
+  using microphone = vi.spyOn(navigator.mediaDevices, "getUserMedia").mockReturnValue(permission);
+  await using screen = await render(<Composer />);
+  await screen.getByRole("button", { name: "Dictate", exact: true }).click();
+  await vi.waitFor(() => expect(microphone).toHaveBeenCalledTimes(1));
+  using _visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+  window.dispatchEvent(new Event("blur"));
+  document.dispatchEvent(new Event("visibilitychange"));
+  grantMicrophone(fake.stream as unknown as MediaStream);
+  await expect.element(screen.getByRole("button", { name: "Stop dictating" })).toBeEnabled();
+  expect(fake.track.stop).not.toHaveBeenCalled();
+  expect(backend.transcribe).not.toHaveBeenCalled();
+  await screen.getByRole("button", { name: "Stop dictating" }).click();
+  await vi.waitFor(() => expect(backend.transcribe).toHaveBeenCalledTimes(1));
+  fake.complete({ _tag: "Success", value: { text: "permission granted in background" } });
+  await expect
+    .element(screen.getByRole("textbox", { name: "Message" }))
+    .toHaveValue("permission granted in background");
+  await expect.element(screen.getByLabelText("Sent messages")).toHaveTextContent("[]");
+});
+
+it("releases the microphone on page unload without uploading or sending", async () => {
+  const fake = setup();
+  using _recorder = stubGlobal("MediaRecorder", fake.Recorder);
+  using _microphone = vi
+    .spyOn(navigator.mediaDevices, "getUserMedia")
+    .mockResolvedValue(fake.stream as unknown as MediaStream);
+  await using screen = await render(<Composer />);
+  await screen.getByRole("button", { name: "Dictate", exact: true }).click();
+  await expect.element(screen.getByRole("button", { name: "Stop dictating" })).toBeEnabled();
+  window.dispatchEvent(new Event("pagehide"));
+  await vi.waitFor(() => expect(fake.track.stop).toHaveBeenCalledTimes(1));
+  await expect.element(screen.getByRole("button", { name: "Dictate", exact: true })).toBeEnabled();
+  expect(backend.transcribe).not.toHaveBeenCalled();
+  await expect.element(screen.getByRole("textbox", { name: "Message" })).toHaveValue("");
+  await expect.element(screen.getByLabelText("Sent messages")).toHaveTextContent("[]");
+});
+
 it("retries the same audio after a failed send without submitting the message", async () => {
   const fake = setup();
   using _recorder = stubGlobal("MediaRecorder", fake.Recorder);

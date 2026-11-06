@@ -27,6 +27,12 @@ cancellation between native calls and discards late results.
 The web capture adapter uses MediaRecorder and the existing shared controller.
 Capture stays on the client even for remote environments. The prepared transcriber
 binds the environment before recording; it never falls back to another server.
+Switching applications, losing window focus, or hiding the web or desktop page
+must not stop recording or pending microphone preparation. Only an explicit stop,
+the recording limits, a recorder failure, or loss of the owning draft ends capture.
+Page unload cancels capture without uploading or sending. Mobile background
+handling remains platform-specific. Leo releases run the browser lifecycle
+regressions on both Linux and Windows before packaging an update.
 Recordings are limited to five minutes and 8 MiB. Audio remains temporary client
 input and is uploaded through an authorized RPC, separate from durable attachments.
 The server sends one multipart request to OpenAI's transcription endpoint, with a
