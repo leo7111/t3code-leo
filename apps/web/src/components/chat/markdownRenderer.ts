@@ -58,6 +58,7 @@ export function createMarkdownRenderer({
     .use(rehypePlugins)
     .freeze();
   const keyPrefix = `${nextRendererId++}\u0000`;
+  let streamed: { text: string; element: ReactElement } | undefined;
 
   // Literal raw HTML that survived the rehype plugins, and URL attributes, as react-markdown treats them.
   const prepare = (node: Nodes) => {
@@ -91,6 +92,12 @@ export function createMarkdownRenderer({
       rendered.set(key, cached);
       return cached;
     }
+    if (cache && streamed?.text === text) {
+      const element = streamed.element;
+      streamed = undefined;
+      remember(key, element);
+      return element;
+    }
     const file = new VFile(text);
     const tree = processor.runSync(processor.parse(file), file) as Root;
     prepare(tree);
@@ -103,6 +110,7 @@ export function createMarkdownRenderer({
       passKeys: true,
       passNode: true,
     });
+    streamed = cache || entrySize(key) > MAX_CACHED_CHARS / 4 ? undefined : { text, element };
     if (cache) remember(key, element);
     return element;
   };

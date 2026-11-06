@@ -82,4 +82,19 @@ describe("createMarkdownRenderer", () => {
     render("x".repeat(600_000), true);
     expect(render("Kept *message*", true)).toBe(element);
   });
+
+  it("promotes a finished streaming block without rendering its unchanged content again", () => {
+    const renderer = createMarkdownRenderer({
+      remarkPlugins: CHAT_MARKDOWN_REMARK_PLUGINS,
+      rehypePlugins: CHAT_MARKDOWN_REHYPE_PLUGINS,
+      components: {},
+      urlTransform,
+    });
+    const history = renderer("History", true);
+    const streamed = renderer("Finished paragraph\n\n", false);
+    expect(renderer("History", true)).toBe(history);
+    expect(renderer("Finished paragraph\n\n", true)).toBe(streamed);
+    renderer("Next paragraph", false);
+    expect(renderer("Finished paragraph\n\n", true)).toBe(streamed);
+  });
 });

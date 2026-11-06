@@ -98,12 +98,13 @@ jobs:
           TEST_PROJECTS: ${{ matrix.project }}
           TEST_SHARD: ${{ matrix.shard }}
           TEST_REPORT: ${{ runner.temp }}/leo-${{ matrix.suite }}.json
+          T3CODE_RENDER_REPORT_DIR: ${{ runner.temp }}/leo-render-reports
         shell: bash
         run: |
           IFS='|' read -ra projects <<< "$TEST_PROJECTS"
           selectors=()
           for project in "${projects[@]}"; do selectors+=(--project "$project"); done
-          if [[ "$TEST_PROJECTS" == root ]]; then selectors+=(--exclude '.github/scripts/*.test.cjs'); fi
+          mkdir -p "$T3CODE_RENDER_REPORT_DIR"
           vp test run "${selectors[@]}" --shard "$TEST_SHARD" --maxWorkers=2 --reporter=default --reporter=json --outputFile.json="$TEST_REPORT"
       - name: Test workflow helpers
         if: always() && matrix.suite == 'packages'
@@ -112,7 +113,9 @@ jobs:
         if: always()
         with:
           name: leo-regressions-${{ matrix.suite }}
-          path: ${{ runner.temp }}/leo-${{ matrix.suite }}.json
+          path: |
+            ${{ runner.temp }}/leo-${{ matrix.suite }}.json
+            ${{ runner.temp }}/leo-render-reports/*.json
           if-no-files-found: error
 
   rust-regressions:

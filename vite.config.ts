@@ -6,6 +6,7 @@ import { cachedTestTasks } from "./scripts/lib/cached-tests.ts";
 
 const TEST_EXCLUDE = [
   "**/.repos/**",
+  "**/.github/scripts/*.test.cjs",
   "**/.t3/**",
   "**/node_modules/**",
   "**/dist/**",
